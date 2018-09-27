@@ -2,6 +2,8 @@ import { Meteor } from 'meteor/meteor';
 import { Router } from 'meteor/clinical:router';
 import { OHIF } from 'meteor/ohif:core';
 import { TAPi18n } from 'meteor/tap:i18n';
+import { dcm4chee,Study } from './service/nodes.js';
+
 
 if (Meteor.isClient) {
     // Disconnect from the Meteor Server since we don't need it
@@ -22,6 +24,9 @@ if (Meteor.isClient) {
             const query = this.params.query;
             const id = this.params.id;
 
+            // console.debug("ID [%s]",id);
+            // console.debug("QUERY [%s]",query.url);
+
             if (!id && !query.url) {
                 console.log('No URL was specified. Use ?url=${yourURL}');
                 return;
@@ -30,74 +35,71 @@ if (Meteor.isClient) {
             const next = this.next;
             const idUrl = `/api/${id}`;
             const url = query.url || idUrl;
+            
 
-            // Define a request to the server to retrieve the study data
-            // as JSON, given a URL that was in the Route
-            const oReq = new XMLHttpRequest();
+            var that = this;
+            /*
+                carga "1.2.3.175778"
+                no cargar "1.2.392.200036.9116.2.6.1.48.1221404871.1537410089.373942"
+                no cargar completo 1.2.840.113663.1500.1.341670604.1.1.20180907.130921.15
+                no carga 1.3.51.0.7.1567419892.12959.37187.41330.16773.29389.15670
+            */
+            // console.debug(id);
+            Study.getAetitle(id)
+                .then(Study.make)
+                .then(function(structureJson){
+                        OHIF.log.info(JSON.stringify(structureJson) );
+                        that.data = structureJson;
+                        
+                        if (that.data.servers && query.studyInstanceUids) {
+                            console.warn('Using Server Definition!');       
 
-            // Add event listeners for request failure
-            oReq.addEventListener('error', () => {
-                OHIF.log.warn('An error occurred while retrieving the JSON data');
-                next();
-            });
+                            const server = that.data.servers.dicomWeb[0];
+                            server.type = 'dicomWeb';       
 
-            // When the JSON has been returned, parse it into a JavaScript Object
-            // and render the OHIF Viewer with this data
-            oReq.addEventListener('load', () => {
-                // Parse the response content
-                // https://developer.mozilla.org/en-US/docs/Web/API/XMLHttpRequest/responseText
-                if (!oReq.responseText) {
-                    OHIF.log.warn('Response was undefined');
-                    return;
-                }
+                            const serverId = OHIF.servers.collections.servers.insert(server);       
 
-                OHIF.log.info(JSON.stringify(oReq.responseText, null, 2));
-                this.data = JSON.parse(oReq.responseText);
+                            OHIF.servers.collections.currentServer.insert({
+                                serverId
+                            });     
 
-                if (this.data.servers && query.studyInstanceUids) {
-                    console.warn('Using Server Definition!');
+                            studyInstanceUids = query.studyInstanceUids.split(';');
+                            const seriesInstanceUids = [];      
 
-                    const server = this.data.servers.dicomWeb[0];
-                    server.type = 'dicomWeb';
+                            const viewerData = {
+                                studyInstanceUids,
+                                seriesInstanceUids
+                            };      
 
-                    const serverId = OHIF.servers.collections.servers.insert(server);
+                            OHIF.studies.retrieveStudiesMetadata(studyInstanceUids, seriesInstanceUids).then(studies => {
+                                that.data = {
+                                    studies,
+                                    viewerData
+                                };      
 
-                    OHIF.servers.collections.currentServer.insert({
-                        serverId
-                    });
+                                next();
+                            });     
 
-                    studyInstanceUids = query.studyInstanceUids.split(';');
-                    const seriesInstanceUids = [];
-
-                    const viewerData = {
-                        studyInstanceUids,
-                        seriesInstanceUids
-                    };
-
-                    OHIF.studies.retrieveStudiesMetadata(studyInstanceUids, seriesInstanceUids).then(studies => {
-                        this.data = {
-                            studies,
-                            viewerData
-                        };
+                            return;
+                        }       
 
                         next();
-                    });
 
-                    return;
-                }
 
-                next();
-            });
+                })
+                .catch(function(error){
+                        console.error("estudio no existe");
+                        OHIF.log.warn('An error occurred while retrieving the JSON data');
+                        // location.href = "http://google.cl";
+                        document.write("<center>Not found</center>");
+                        //next();
+                })
+                .catch(function(error){
+                    console.error("ERROR2");
+                    //console.error(that.data);
+                });
 
-            // Open the Request to the server for the JSON data
-            // In this case we have a server-side route called /api/
-            // which responds to GET requests with the study data
             OHIF.log.info(`Sending Request to: ${url}`);
-            oReq.open('GET', url);
-            oReq.setRequestHeader('Accept', 'application/json')
-
-            // Fire the request to the server
-            oReq.send();
         },
         action() {
             // Render the Viewer with this data
@@ -129,12 +131,12 @@ if (Meteor.isServer) {
         this.response.setHeader('Content-Type', 'application/json');
         this.response.setHeader('Access-Control-Allow-Origin', '*');
         this.response.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-
         // Change the response text depending on the available study data
         if (!data) {
             this.response.write('No Data Found');
         } else {
             // Stringify the JavaScript object to JSON for the response
+            console.error(data);
             this.response.write(JSON.stringify(data));
         }
 

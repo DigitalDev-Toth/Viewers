@@ -1,5 +1,5 @@
 import { HTTP } from 'meteor/http'
-//var Fs = require("fs");
+// var Fs = require("fs");
 
 class Dcm4chee{
 	static test(value){
@@ -77,7 +77,7 @@ var Study = {
 			*/
 			aet = aet || this.defaultQueryAET;
 			studyUID = studyUID || this.defaultStudyInstanceUID;
-			return this.domain+"aets/"+aet+"/wado?requestType=WADO&studyUID="+studyUID+"&seriesUID="+seriesUID+"&objectUID="+objectUID+"&contentType=application/dicom&transferSyntax=*";
+			return this.domain+"aets/"+aet+"/wado?requestType=WADO&studyUID="+studyUID+"&seriesUID="+seriesUID+"&objectUID="+objectUID+"&imageQuality=100&contentType=application/dicom&transferSyntax=*";
 		}
 	},
 	saveFile:function(text,pathfile){
@@ -191,6 +191,62 @@ var Study = {
 			}
 		}
 	},
+	quicksort2:function(array) {
+	  if (array.length <= 1) {
+	    return array;
+	  }	
+
+	  var pivot = array[0].seriesNumber;
+	  
+	  var left = []; 
+	  var right = [];	
+
+	  for (var i = 1; i < array.length; i++) {
+	  	array[i].seriesNumber < pivot ? left.push(array[i]) : right.push(array[i]);
+	  }	
+
+	  return this.quicksort2(left).concat(array[0], this.quicksort2(right));
+	},
+	quicksort3:function(array) {
+	  if (array.length <= 1) {
+	    return array;
+	  }	
+
+	  var pivot = array[0].instancesNumber;
+	  
+	  var left = []; 
+	  var right = [];	
+
+	  for (var i = 1; i < array.length; i++) {
+	  	array[i].instancesNumber < pivot ? left.push(array[i]) : right.push(array[i]);
+	  }	
+
+	  return this.quicksort3(left).concat(array[0], this.quicksort3(right));
+	},
+	order:function(structureJson){
+		// console.warn(  this.quicksort2([1,3,2]) );
+		if( structureJson.hasOwnProperty("studies") && structureJson.studies.length == 1 ){
+			// console.error( "%b %b",structureJson.studies[0].hasOwnProperty("seriesList"), structureJson.studies[0].seriesList.length > 0 );
+			if( structureJson.studies[0].hasOwnProperty("seriesList") && structureJson.studies[0].seriesList.length > 0 ){
+				// for(var i=0;i<structureJson.studies[0].seriesList.length;i++ ){
+				// 	console.error( structureJson.studies[0].seriesList[i].seriesNumber );
+				// }
+				
+				// var tempSerie = this.quicksort2(structureJson.studies[0].seriesList );
+				// structureJson.studies[0].seriesList = tempSerie;
+				structureJson.studies[0].seriesList.reverse();
+
+				for(var i=0;i<structureJson.studies[0].seriesList.length;i++ ){
+					var tempInstance = structureJson.studies[0].seriesList[i].instances;
+					
+					tempInstance = this.quicksort3(tempInstance);
+					structureJson.studies[0].seriesList[i].instances = tempInstance;		
+					// structureJson.studies[0].seriesList[i].instances.reverse();
+				}
+			}
+		}
+		return structureJson;
+	},
 	make:function(info){
 		var client = info.aetitle;
 		var uid = info.uid;
@@ -214,6 +270,9 @@ var Study = {
 						studyDate = data.body[i]["00080020"]["Value"][0];
 						studyTime = data.body[i]["00080030"]["Value"][0];
 						seriesNumber = data.body[i]["00200011"]["Value"][0];
+						instancesNumber = data.body[i]["00200013"]["Value"][0];
+
+						// console.error( data.body[i]["00200032"]["Value"] );
 
 						if(data.body[i][that.dicom.attr.series_description]!==undefined &&  data.body[i][that.dicom.attr.series_description].hasOwnProperty("Value")  ){
 							seriesDescription = data.body[i][that.dicom.attr.series_description]["Value"][0];
@@ -232,6 +291,8 @@ var Study = {
 						columns = data.body[i][that.dicom.attr.columns]["Value"][0];
 						rows = data.body[i][that.dicom.attr.rows]["Value"][0];
 
+						// console.error( data.body[i]["52009230"] );
+
 						if( !that.existSerie(seriesInstanceUid,series) ){
 							series.push({
 								seriesInstanceUid : seriesInstanceUid,
@@ -244,7 +305,8 @@ var Study = {
 							uid : sopInstanceUid,
 							columns : columns,
 							rows : rows,
-							wadouri : that.dicom.wadouriInstances(client,studyInstanceUid,seriesInstanceUid,sopInstanceUid).replace("","")
+							wadouri : that.dicom.wadouriInstances(client,studyInstanceUid,seriesInstanceUid,sopInstanceUid).replace("",""),
+							instancesNumber : instancesNumber
 						},seriesInstanceUid,series);
 						
 						if( i==0 ){

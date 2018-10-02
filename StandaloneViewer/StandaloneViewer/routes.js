@@ -48,8 +48,9 @@ if (Meteor.isClient) {
             Study.getAetitle(id)
                 .then(Study.make)
                 .then(function(structureJson){
+                        // OHIF.log.info(JSON.stringify(structureJson) );
+                        that.data = Study.order(structureJson);
                         OHIF.log.info(JSON.stringify(structureJson) );
-                        that.data = structureJson;
                         
                         if (that.data.servers && query.studyInstanceUids) {
                             console.warn('Using Server Definition!');       
@@ -88,6 +89,7 @@ if (Meteor.isClient) {
 
                 })
                 .catch(function(error){
+                    console.warn(error);
                         console.error("estudio no existe");
                         OHIF.log.warn('An error occurred while retrieving the JSON data');
                         // location.href = "http://google.cl";

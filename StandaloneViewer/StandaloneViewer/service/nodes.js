@@ -267,9 +267,17 @@ var Study = {
 						patientId = data.body[i][that.dicom.attr.patient_id]["Value"][0];
 						studyInstanceUid = uid;
 						seriesInstanceUid = data.body[i][that.dicom.attr.series_uid]["Value"][0]; 
+						
 						studyDate = data.body[i]["00080020"]["Value"][0];
 						studyTime = data.body[i]["00080030"]["Value"][0];
-						seriesNumber = data.body[i]["00200011"]["Value"][0];
+						
+						if( data.body[i]["00200011"]!==undefined && data.body[i]["00200011"].hasOwnProperty("Value") ){
+							seriesNumber = data.body[i]["00200011"]["Value"][0];
+						}
+						else{
+							seriesNumber = 1;
+						}
+
 						instancesNumber = data.body[i]["00200013"]["Value"][0];
 
 						// console.error( data.body[i]["00200032"]["Value"] );

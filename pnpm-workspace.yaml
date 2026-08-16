@@ -108,3 +108,5 @@ overrides:
   'js-yaml@>=3.0.0 <3.15.1': 3.15.1
   'js-yaml@>=4.0.0 <4.3.1': 4.3.1
   'postcss@<8.5.26': 8.5.26
+patchedDependencies:
+  '@cornerstonejs/dicom-image-loader@5.6.12': patches/@cornerstonejs__dicom-image-loader@5.6.12.patch

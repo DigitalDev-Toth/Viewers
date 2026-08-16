@@ -1,0 +1,32 @@
+diff --git a/dist/esm/decodeImageFrameWorker.js b/dist/esm/decodeImageFrameWorker.js
+index 5328baace8afbf4ce6ea76ef0a218c1020cb373d..11da53fb25068c4695bcf355e9762ee344e4ac26 100644
+--- a/dist/esm/decodeImageFrameWorker.js
++++ b/dist/esm/decodeImageFrameWorker.js
+@@ -26,6 +26,27 @@ const typedArrayConstructors = {
+     Uint32Array,
+ };
+ export function postProcessDecodedPixels(imageFrame, options, start, decodeConfig) {
++    // PATCH (Toth): descartar el byte de relleno de PixelData.
++    //
++    // DICOM PS3.5 §7.1.1 exige longitud par en todo elemento, así que cuando
++    // rows*columns*samplesPerPixel es impar el PixelData lleva un byte de
++    // relleno al final. Sin quitarlo, vtkDataArray recibe un largo que no es
++    // múltiplo de numberOfComponents y lanza
++    //   RangeError: model.size is not a multiple of model.numberOfComponents
++    // que StackViewport._createVTKImageData se traga en su catch, dejando
++    // this._imageData undefined; la línea siguiente hace setOrigin sobre eso
++    // y el síntoma visible es un TypeError sin relación aparente.
++    //
++    // Se descarta como máximo UN elemento, y sólo cuando el exceso es
++    // exactamente ese: cualquier otra diferencia no es el relleno del
++    // estándar y no nos toca adivinar qué significa.
++    const expectedLength = imageFrame.rows * imageFrame.columns * imageFrame.samplesPerPixel;
++    if (expectedLength > 0 &&
++        imageFrame.pixelData &&
++        imageFrame.pixelData.length === expectedLength + 1 &&
++        typeof imageFrame.pixelData.subarray === 'function') {
++        imageFrame.pixelData = imageFrame.pixelData.subarray(0, expectedLength);
++    }
+     const shouldShift = imageFrame.pixelRepresentation !== undefined &&
+         imageFrame.pixelRepresentation === 1;
+     const shift = shouldShift && imageFrame.bitsStored !== undefined

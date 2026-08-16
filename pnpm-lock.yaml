@@ -57,6 +57,9 @@ overrides:
   js-yaml@>=4.0.0 <4.3.1: 4.3.1
   postcss@<8.5.26: 8.5.26
 
+patchedDependencies:
+  '@cornerstonejs/dicom-image-loader@5.6.12': ef071a5e874a3d13850a5d87fd21835962a89f4ce22842be4965d4e22adbae70
+
 importers:
 
   .:
@@ -100,7 +103,7 @@ importers:
         version: 7.29.7(@babel/core@7.29.7)
       '@babel/preset-env':
         specifier: 7.29.7
-        version: 7.29.7(@babel/core@7.29.7(supports-color@8.1.1))
+        version: 7.29.7(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1)
       '@babel/preset-react':
         specifier: 7.29.7
         version: 7.29.7(@babel/core@7.29.7)
@@ -221,7 +224,7 @@ importers:
         version: 5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0)
       '@cornerstonejs/dicom-image-loader':
         specifier: 5.6.12
-        version: 5.6.12(@cornerstonejs/core@5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0))(@cornerstonejs/metadata@5.6.12)(dicom-parser@1.8.21)
+        version: 5.6.12(patch_hash=ef071a5e874a3d13850a5d87fd21835962a89f4ce22842be4965d4e22adbae70)(@cornerstonejs/core@5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0))(@cornerstonejs/metadata@5.6.12)(dicom-parser@1.8.21)
       '@cornerstonejs/labelmap-interpolation':
         specifier: 5.6.12
         version: 5.6.12(@cornerstonejs/core@5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0))(@cornerstonejs/tools@5.6.12(@cornerstonejs/core@5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0))(@kitware/vtk.js@36.4.1(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0))(@types/d3-array@3.2.1)(@types/d3-interpolate@3.0.4)(d3-array@3.2.4)(d3-interpolate@3.0.1)(gl-matrix@3.4.3))(@kitware/vtk.js@36.4.1(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0))
@@ -1378,7 +1381,7 @@ importers:
         version: 2.4.7
       '@cornerstonejs/dicom-image-loader':
         specifier: 5.6.12
-        version: 5.6.12(@cornerstonejs/core@5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0))(@cornerstonejs/metadata@5.6.12)(dicom-parser@1.8.21)
+        version: 5.6.12(patch_hash=ef071a5e874a3d13850a5d87fd21835962a89f4ce22842be4965d4e22adbae70)(@cornerstonejs/core@5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0))(@cornerstonejs/metadata@5.6.12)(dicom-parser@1.8.21)
       '@emotion/serialize':
         specifier: 1.3.3
         version: 1.3.3
@@ -1589,7 +1592,7 @@ importers:
         version: 5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0)
       '@cornerstonejs/dicom-image-loader':
         specifier: 5.6.12
-        version: 5.6.12(@cornerstonejs/core@5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0))(@cornerstonejs/metadata@5.6.12)(dicom-parser@1.8.21)
+        version: 5.6.12(patch_hash=ef071a5e874a3d13850a5d87fd21835962a89f4ce22842be4965d4e22adbae70)(@cornerstonejs/core@5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0))(@cornerstonejs/metadata@5.6.12)(dicom-parser@1.8.21)
       '@cornerstonejs/metadata':
         specifier: 5.6.12
         version: 5.6.12
@@ -7314,6 +7317,7 @@ packages:
 
   crypto-js@4.2.0:
     resolution: {integrity: sha512-KALDyEYgpY+Rlob/iriUtjV6d5Eq+Y191A5g4UqLAi8CyGP9N1+FdVbkc1SxKc2r4YAYqG8JzO2KGL+AizD70Q==}
+    deprecated: Active development of CryptoJS has been discontinued. This library is no longer maintained.
 
   crypto-random-string@2.0.0:
     resolution: {integrity: sha512-v1plID3y9r/lPhviJ1wrXpLeyUIGAZ2SHNYTEapm7/8A9nLPoyvVp3RK/EPFqn5kEznyWgYZNsRtYYIWbuG8KA==}
@@ -14083,7 +14087,7 @@ snapshots:
       '@babel/helpers': 7.29.2
       '@babel/parser': 7.29.3
       '@babel/template': 7.28.6
-      '@babel/traverse': 7.29.0
+      '@babel/traverse': 7.29.0(supports-color@8.1.1)
       '@babel/types': 7.29.0
       convert-source-map: 2.0.0
       debug: 4.4.3(supports-color@8.1.1)
@@ -14103,7 +14107,7 @@ snapshots:
       '@babel/helpers': 7.29.2
       '@babel/parser': 7.29.3
       '@babel/template': 7.28.6
-      '@babel/traverse': 7.29.0
+      '@babel/traverse': 7.29.0(supports-color@8.1.1)
       '@babel/types': 7.29.0
       convert-source-map: 2.0.0
       debug: 4.4.3(supports-color@8.1.1)
@@ -15297,7 +15301,7 @@ snapshots:
       '@babel/helper-module-transforms': 7.28.6(@babel/core@7.28.0(supports-color@8.1.1))
       '@babel/helper-plugin-utils': 7.28.6
       '@babel/helper-validator-identifier': 7.28.5
-      '@babel/traverse': 7.29.0
+      '@babel/traverse': 7.29.0(supports-color@8.1.1)
     transitivePeerDependencies:
       - supports-color
 
@@ -15307,17 +15311,17 @@ snapshots:
       '@babel/helper-module-transforms': 7.28.6(@babel/core@7.28.0)
       '@babel/helper-plugin-utils': 7.28.6
       '@babel/helper-validator-identifier': 7.28.5
-      '@babel/traverse': 7.29.0
+      '@babel/traverse': 7.29.0(supports-color@8.1.1)
     transitivePeerDependencies:
       - supports-color
 
-  '@babel/plugin-transform-modules-systemjs@7.29.4(@babel/core@7.29.7(supports-color@8.1.1))':
+  '@babel/plugin-transform-modules-systemjs@7.29.4(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1)':
     dependencies:
       '@babel/core': 7.29.7(supports-color@8.1.1)
       '@babel/helper-module-transforms': 7.28.6(@babel/core@7.29.7(supports-color@8.1.1))
       '@babel/helper-plugin-utils': 7.28.6
       '@babel/helper-validator-identifier': 7.28.5
-      '@babel/traverse': 7.29.0
+      '@babel/traverse': 7.29.0(supports-color@8.1.1)
     transitivePeerDependencies:
       - supports-color
 
@@ -16094,7 +16098,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@babel/preset-env@7.29.7(@babel/core@7.29.7(supports-color@8.1.1))':
+  '@babel/preset-env@7.29.7(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1)':
     dependencies:
       '@babel/compat-data': 7.29.7
       '@babel/core': 7.29.7(supports-color@8.1.1)
@@ -16136,7 +16140,7 @@ snapshots:
       '@babel/plugin-transform-member-expression-literals': 7.29.7(@babel/core@7.29.7)
       '@babel/plugin-transform-modules-amd': 7.29.7(@babel/core@7.29.7)
       '@babel/plugin-transform-modules-commonjs': 7.29.7(@babel/core@7.29.7)
-      '@babel/plugin-transform-modules-systemjs': 7.29.4(@babel/core@7.29.7(supports-color@8.1.1))
+      '@babel/plugin-transform-modules-systemjs': 7.29.4(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1)
       '@babel/plugin-transform-modules-umd': 7.29.7(@babel/core@7.29.7)
       '@babel/plugin-transform-named-capturing-groups-regex': 7.29.7(@babel/core@7.29.7)
       '@babel/plugin-transform-new-target': 7.29.7(@babel/core@7.29.7)
@@ -16213,7 +16217,7 @@ snapshots:
       '@babel/plugin-transform-member-expression-literals': 7.29.7(@babel/core@7.29.7)
       '@babel/plugin-transform-modules-amd': 7.29.7(@babel/core@7.29.7)
       '@babel/plugin-transform-modules-commonjs': 7.29.7(@babel/core@7.29.7)
-      '@babel/plugin-transform-modules-systemjs': 7.29.4(@babel/core@7.29.7(supports-color@8.1.1))
+      '@babel/plugin-transform-modules-systemjs': 7.29.4(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1)
       '@babel/plugin-transform-modules-umd': 7.29.7(@babel/core@7.29.7)
       '@babel/plugin-transform-named-capturing-groups-regex': 7.29.7(@babel/core@7.29.7)
       '@babel/plugin-transform-new-target': 7.29.7(@babel/core@7.29.7)
@@ -16363,7 +16367,7 @@ snapshots:
       '@babel/parser': 7.29.7
       '@babel/types': 7.29.7
 
-  '@babel/traverse@7.29.0':
+  '@babel/traverse@7.29.0(supports-color@8.1.1)':
     dependencies:
       '@babel/code-frame': 7.29.0
       '@babel/generator': 7.29.7
@@ -16449,7 +16453,7 @@ snapshots:
       - autoprefixer
       - wslink
 
-  '@cornerstonejs/dicom-image-loader@5.6.12(@cornerstonejs/core@5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0))(@cornerstonejs/metadata@5.6.12)(dicom-parser@1.8.21)':
+  '@cornerstonejs/dicom-image-loader@5.6.12(patch_hash=ef071a5e874a3d13850a5d87fd21835962a89f4ce22842be4965d4e22adbae70)(@cornerstonejs/core@5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0))(@cornerstonejs/metadata@5.6.12)(dicom-parser@1.8.21)':
     dependencies:
       '@cornerstonejs/codec-charls': 1.2.3
       '@cornerstonejs/codec-libjpeg-turbo-8bit': 1.2.2

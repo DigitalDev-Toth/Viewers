@@ -49,7 +49,10 @@ steps:
       - --region=$_REGION
       - --port=8080
       - --allow-unauthenticated
-      - --set-secrets=RELAY_REQUEST_TOKEN=relay-request-token:latest
+      # MIRROR_LINK_SECRETS (en plural) porque el relay tiene dos valores para
+      # poder rotar: si acá va sólo uno, los enlaces firmados con el otro
+      # dejan de abrir.
+      - --set-secrets=RELAY_REQUEST_TOKEN=relay-request-token:latest,MIRROR_LINK_SECRETS=mirror-link-secrets:latest
       - --set-env-vars=RELAY_BASE=$_RELAY_BASE,PUBLIC_ORIGIN=$_PUBLIC_ORIGIN
       # Los estudios grandes tardan: el primer /ohif de un estudio sin
       # geometría persistida lee cabeceras antes de responder.

@@ -12,7 +12,7 @@ options:
   logging: CLOUD_LOGGING_ONLY
 
 substitutions:
-  _REGION: us-central1
+  _REGION: southamerica-west1
   _SERVICE: ohif-viewer
   _RELAY_BASE: https://relay.cui.date
   _PUBLIC_ORIGIN: https://ohif.cui.date
@@ -20,12 +20,16 @@ substitutions:
 steps:
   - id: build
     name: gcr.io/cloud-builders/docker
+    # El Dockerfile usa COPY --parents y --link, que son de BuildKit. El paso
+    # docker de Cloud Build arranca con el motor clásico, que falla con
+    # "Unknown flag: parents" pese a la directiva `# syntax=` del Dockerfile.
+    env: ['DOCKER_BUILDKIT=1']
     args:
       - build
       - -f
       - toth/Dockerfile
       - -t
-      - $_REGION-docker.pkg.dev/$PROJECT_ID/ohif/$_SERVICE:$SHORT_SHA
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/ohif/$_SERVICE:$BUILD_ID
       - -t
       - $_REGION-docker.pkg.dev/$PROJECT_ID/ohif/$_SERVICE:latest
       - .
@@ -41,7 +45,7 @@ steps:
       - run
       - deploy
       - $_SERVICE
-      - --image=$_REGION-docker.pkg.dev/$PROJECT_ID/ohif/$_SERVICE:$SHORT_SHA
+      - --image=$_REGION-docker.pkg.dev/$PROJECT_ID/ohif/$_SERVICE:$BUILD_ID
       - --region=$_REGION
       - --port=8080
       - --allow-unauthenticated
@@ -56,5 +60,5 @@ steps:
       - --memory=512Mi
 
 images:
-  - $_REGION-docker.pkg.dev/$PROJECT_ID/ohif/$_SERVICE:$SHORT_SHA
+  - $_REGION-docker.pkg.dev/$PROJECT_ID/ohif/$_SERVICE:$BUILD_ID
   - $_REGION-docker.pkg.dev/$PROJECT_ID/ohif/$_SERVICE:latest

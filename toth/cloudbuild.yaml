@@ -1,0 +1,60 @@
+# Build y deploy de ohif-viewer a Cloud Run.
+#
+#   gcloud builds submit --config=toth/cloudbuild.yaml .
+#
+# Existe porque `gcloud run deploy --source=.` usa el Dockerfile de la raíz
+# (el de upstream, que termina en nginx estático) y nosotros necesitamos el de
+# toth/, que además sirve de proxy al relay. Ver toth/server.mjs.
+#
+# El build de OHIF es pesado — vale la máquina grande.
+options:
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY
+
+substitutions:
+  _REGION: us-central1
+  _SERVICE: ohif-viewer
+  _RELAY_BASE: https://relay.cui.date
+  _PUBLIC_ORIGIN: https://ohif.cui.date
+
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - toth/Dockerfile
+      - -t
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/ohif/$_SERVICE:$SHORT_SHA
+      - -t
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/ohif/$_SERVICE:latest
+      - .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args: [push, --all-tags, "$_REGION-docker.pkg.dev/$PROJECT_ID/ohif/$_SERVICE"]
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - $_SERVICE
+      - --image=$_REGION-docker.pkg.dev/$PROJECT_ID/ohif/$_SERVICE:$SHORT_SHA
+      - --region=$_REGION
+      - --port=8080
+      - --allow-unauthenticated
+      - --set-secrets=RELAY_REQUEST_TOKEN=relay-request-token:latest
+      - --set-env-vars=RELAY_BASE=$_RELAY_BASE,PUBLIC_ORIGIN=$_PUBLIC_ORIGIN
+      # Los estudios grandes tardan: el primer /ohif de un estudio sin
+      # geometría persistida lee cabeceras antes de responder.
+      - --timeout=300
+      # El proxy sólo reenvía bytes, pero el streaming de DICOM mantiene
+      # muchas conexiones abiertas a la vez.
+      - --concurrency=80
+      - --memory=512Mi
+
+images:
+  - $_REGION-docker.pkg.dev/$PROJECT_ID/ohif/$_SERVICE:$SHORT_SHA
+  - $_REGION-docker.pkg.dev/$PROJECT_ID/ohif/$_SERVICE:latest

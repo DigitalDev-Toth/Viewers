@@ -36,9 +36,13 @@ window.config = {
         friendlyName: 'dicom-index (via relay)',
         name: 'json',
         // `dicomjson` toma el manifiesto de un `?url=` arbitrario, así que
-        // upstream pide acotarlo. Sólo el proxy local: sin esta lista, una
-        // URL de viewer manipulada podría hacer que el visor cargue
-        // metadata de cualquier host.
+        // upstream pide acotarlo: sin esto, una URL de visor manipulada
+        // podría hacer que cargue metadata de cualquier host.
+        //
+        // Sólo hace falta para desarrollo, donde el proxy vive en otro
+        // puerto. En Cloud Run el manifiesto sale de `/api/...` del mismo
+        // contenedor, y `resolveConfigFetchPolicy` deja pasar el mismo
+        // origen sin consultar esta lista.
         dangerouslyAllowedOriginsForAuthenticatedEnvironments: [
           'http://localhost:3001',
         ],

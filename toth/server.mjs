@@ -72,7 +72,8 @@ function proxyToRelay(req, res, pathname, search) {
   // El manifiesto lleva dentro las URLs de imagen que pedirá el navegador, y
   // tienen que apuntar a este mismo origen, no al relay. Se inyecta acá para
   // que el cliente no tenga que saberlo (ni pueda equivocarse).
-  if (pathname.endsWith('/ohif') && !params.has('wado_base')) {
+  const isManifest = pathname.endsWith('/ohif') || params.get('format') === 'ohif';
+  if (isManifest && !params.has('wado_base')) {
     const origin = PUBLIC_ORIGIN || `https://${req.headers.host ?? ''}`;
     params.set('wado_base', `${origin}/api`);
   }

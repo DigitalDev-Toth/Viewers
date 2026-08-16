@@ -42,7 +42,9 @@ FROM node:24-slim AS final
 
 WORKDIR /app
 COPY --from=builder /usr/src/app/platform/app/dist ./dist
-COPY toth/server.mjs ./server.mjs
+# server.mjs importa link-token.mjs: copiar sólo el primero deja el contenedor
+# muriendo al arrancar con ERR_MODULE_NOT_FOUND.
+COPY toth/server.mjs toth/link-token.mjs ./
 
 ENV NODE_ENV=production
 ENV DIST_DIR=/app/dist

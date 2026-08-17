@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OHIF · control externo</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font: 15px/1.5 system-ui, sans-serif;
+    margin: 0 auto; padding: 2rem 1.5rem; max-width: 56rem;
+  }
+  h1 { font-size: 1.35rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1rem; margin: 2rem 0 .5rem; }
+  p.lead { margin: 0 0 1.5rem; opacity: .75; }
+  fieldset { border: 1px solid currentColor; border-radius: 6px; padding: 1rem; margin: 0 0 1rem; opacity: .95; }
+  legend { padding: 0 .4rem; font-weight: 600; }
+  label { display: block; margin: .5rem 0 .15rem; font-size: .85rem; opacity: .8; }
+  input { width: 100%; padding: .4rem .55rem; font: inherit; border-radius: 4px; border: 1px solid; background: transparent; color: inherit; }
+  .row { display: flex; gap: .75rem; flex-wrap: wrap; align-items: flex-end; }
+  .row > * { flex: 1 1 14rem; }
+  button { padding: .5rem .9rem; font: inherit; border-radius: 4px; cursor: pointer; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .buttons { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .75rem; }
+  #estado { font-weight: 600; }
+  #log { background: rgba(127,127,127,.12); border-radius: 6px; padding: .75rem 1rem; font: 12.5px/1.6 ui-monospace, monospace; white-space: pre-wrap; max-height: 22rem; overflow: auto; }
+  .err { color: #c0392b; }
+  .ok { color: #1e8449; }
+</style>
+</head>
+<body>
+
+<h1>Control externo de OHIF</h1>
+<p class="lead">
+  Demostración del canal <code>postMessage</code>. Es lo que hace un RIS: abre
+  el visor una vez y después le empuja estudios sin volver a recargarlo, para
+  no perder mediciones, layout ni caché de imágenes.
+</p>
+
+<fieldset>
+  <legend>Visor</legend>
+  <div class="row">
+    <div>
+      <label for="origen">Origen del visor</label>
+      <input id="origen" value="https://ohif.cui.date">
+    </div>
+    <div>
+      <label for="url">URL con la que abrirlo</label>
+      <input id="url" placeholder="https://ohif.cui.date/open?token=…">
+    </div>
+  </div>
+  <label for="nombre">Nombre de la ventana (es lo que permite reencontrarla)</label>
+  <input id="nombre" value="ohif-viewer">
+  <div class="buttons">
+    <button id="conectar">Abrir o reenganchar</button>
+    <button id="cerrar" disabled>Cerrar el visor</button>
+  </div>
+  <p>Estado: <span id="estado">sin conectar</span></p>
+</fieldset>
+
+<fieldset>
+  <legend>Acciones</legend>
+  <div class="row">
+    <div>
+      <label for="estudio">StudyInstanceUID</label>
+      <input id="estudio" placeholder="1.2.826.0.1…">
+    </div>
+    <div>
+      <label for="manifiesto">Manifiesto (opcional)</label>
+      <input id="manifiesto" placeholder="/api/study/1.2.826…?client=nim&amp;format=ohif">
+    </div>
+  </div>
+  <div class="buttons">
+    <button class="accion" data-accion="agregar">Agregar</button>
+    <button class="accion" data-accion="agregar-y-enfocar">Agregar y mostrar</button>
+    <button class="accion" data-accion="enfocar">Mostrar</button>
+    <button class="accion" data-accion="quitar">Quitar</button>
+    <button class="accion" data-accion="estado">Ver qué tiene abierto</button>
+  </div>
+</fieldset>
+
+<h2>Registro</h2>
+<div id="log">—</div>
+
+<script src="./client.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var viewer = null;
+
+  function log(mensaje, clase) {
+    var linea = document.createElement('div');
+    if (clase) { linea.className = clase; }
+    linea.textContent = new Date().toLocaleTimeString() + '  ' + mensaje;
+    var caja = $('log');
+    if (caja.textContent === '—') { caja.textContent = ''; }
+    caja.appendChild(linea);
+    caja.scrollTop = caja.scrollHeight;
+  }
+
+  function estado(texto) { $('estado').textContent = texto; }
+
+  function conectar() {
+    if (viewer) { viewer.destroy(); }
+    viewer = OHIFExternalControl.connect({
+      viewerOrigin: $('origen').value.trim(),
+      openUrl: $('url').value.trim() || undefined,
+      windowName: $('nombre').value.trim() || 'ohif-viewer',
+    });
+
+    viewer.on('ready', function (info) {
+      estado('conectado');
+      $('cerrar').disabled = false;
+      log('READY · acepta: ' + info.capabilities.join(', '), 'ok');
+    });
+
+    estado('esperando al visor…');
+    // window.open sólo funciona dentro de un gesto del usuario; por eso esto
+    // cuelga de un clic y no de la carga de la página.
+    viewer.open().then(
+      function () { log('ventana lista'); },
+      function (error) {
+        estado('sin conectar');
+        log(error.code + ': ' + error.message, 'err');
+      }
+    );
+  }
+
+  function estudioActual() {
+    var uid = $('estudio').value.trim();
+    if (!uid) { throw new Error('falta el StudyInstanceUID'); }
+    var manifiesto = $('manifiesto').value.trim();
+    return manifiesto ? { StudyInstanceUID: uid, url: manifiesto } : { StudyInstanceUID: uid };
+  }
+
+  var acciones = {
+    agregar: function () { return viewer.addStudies([estudioActual()]); },
+    'agregar-y-enfocar': function () {
+      return viewer.addStudies([estudioActual()], { focus: true });
+    },
+    enfocar: function () {
+      return viewer.focus({ StudyInstanceUID: estudioActual().StudyInstanceUID });
+    },
+    quitar: function () {
+      return viewer.removeStudies([estudioActual().StudyInstanceUID]);
+    },
+    estado: function () { return viewer.getSessionState(); },
+  };
+
+  $('conectar').addEventListener('click', conectar);
+
+  $('cerrar').addEventListener('click', function () {
+    if (viewer) { viewer.close(); }
+    estado('sin conectar');
+    $('cerrar').disabled = true;
+    log('ventana cerrada');
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.accion'), function (boton) {
+    boton.addEventListener('click', function () {
+      if (!viewer) {
+        log('primero hay que abrir el visor', 'err');
+        return;
+      }
+      var nombre = boton.dataset.accion;
+      var llamada;
+      try {
+        llamada = acciones[nombre]();
+      } catch (error) {
+        log(error.message, 'err');
+        return;
+      }
+      log(nombre + ' →');
+      // Nada de esto necesita que el visor esté listo: si todavía no contestó
+      // READY, la llamada queda en cola y sale sola cuando conteste.
+      llamada.then(
+        function (resultado) { log('  ' + JSON.stringify(resultado), 'ok'); },
+        function (error) { log('  ' + error.code + ': ' + error.message, 'err'); }
+      );
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

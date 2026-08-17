@@ -17,14 +17,19 @@ import { verifyLinkToken, parseCookies, buildCookie, linkSecrets } from './link-
 const SECRET = 'secreto-de-prueba-no-usado-en-ninguna-parte';
 const OTRO_SECRETO = 'otro-secreto-distinto';
 
-const b64url = buf => Buffer.from(buf).toString('base64')
-  .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const b64url = buf =>
+  Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 function firmar(payload, secret = SECRET) {
   const header = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const body = b64url(JSON.stringify(payload));
-  const sig = crypto.createHmac('sha256', secret).update(`${header}.${body}`).digest('base64')
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const sig = crypto
+    .createHmac('sha256', secret)
+    .update(`${header}.${body}`)
+    .digest('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
   return `${header}.${body}.${sig}`;
 }
 
@@ -79,9 +84,64 @@ test('rechaza el algoritmo "none"', () => {
   assert.equal(verificar(`${header}.${body}.`), null);
 });
 
-test('rechaza un scope que no sea view', () => {
+test('rechaza un scope que no conoce', () => {
   assert.equal(verificar(firmar(valido({ scope: 'download' }))), null);
   assert.equal(verificar(firmar(valido({ scope: 'list' }))), null);
+  assert.equal(verificar(firmar(valido({ scope: '' }))), null);
+});
+
+// ── sesión ─────────────────────────────────────────────────────────────────
+
+test('acepta un token de sesión sin estudio', () => {
+  const claims = verificar(
+    firmar({
+      scope: 'session',
+      client: 'nim',
+      iat: ahora,
+      exp: ahora + 8 * 3600,
+    })
+  );
+
+  assert.equal(claims.scope, 'session');
+  assert.equal(claims.client, 'nim');
+  assert.equal(claims.study_iuid, null);
+});
+
+test('un token de sesión que además nombra un estudio es ambiguo y se rechaza', () => {
+  // No se sabría si la compuerta debe acotar por ese estudio o abrir el centro.
+  assert.equal(verificar(firmar(valido({ scope: 'session' }))), null);
+});
+
+test('el token de sesión sigue exigiendo un client con forma válida', () => {
+  assert.equal(
+    verificar(
+      firmar({
+        scope: 'session',
+        client: 'NIM; DROP TABLE',
+        iat: ahora,
+        exp: ahora + 3600,
+      })
+    ),
+    null
+  );
+});
+
+test('el token de sesión no escapa al tope de vigencia', () => {
+  assert.equal(
+    verificar(
+      firmar({
+        scope: 'session',
+        client: 'nim',
+        iat: ahora,
+        exp: ahora + 365 * 24 * 3600,
+      })
+    ),
+    null
+  );
+});
+
+test('el scope viaja en los claims para que la compuerta pueda distinguirlos', () => {
+  assert.equal(verificar(firmar(valido())).scope, 'view');
 });
 
 test('rechaza un token vencido', () => {

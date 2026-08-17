@@ -35,8 +35,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
-  COOKIE_NAME, buildCookie, linkSecrets, parseCookies, requestIsHttps, verifyLinkToken,
+  COOKIE_NAME,
+  STUDY_IUID_RE,
+  buildCookie,
+  linkSecrets,
+  parseCookies,
+  requestIsHttps,
+  verifyLinkToken,
 } from './link-token.mjs';
+import { authorizeApiRequest } from './api-gate.mjs';
 
 const PORT = Number(process.env.PORT ?? 8080);
 const RELAY = new URL(process.env.RELAY_BASE ?? 'https://relay.cui.date');
@@ -46,20 +53,6 @@ const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN ?? '';
 
 const upstreamModule = RELAY.protocol === 'http:' ? http : https;
 const upstreamPort = RELAY.port || (RELAY.protocol === 'http:' ? 80 : 443);
-
-// Cada ruta declara de dónde sale el estudio que se está pidiendo, porque hay
-// que compararlo contra el del token: sin esa comparación, un enlace a un
-// estudio abriría cualquier otro.
-//
-// /studies e /intensity quedaron fuera a propósito. El token de Mirror es por
-// estudio, así que no hay forma de autorizar un listado completo con él; y el
-// visor no las usa. Exponerlas sin poder acotarlas sería regalar el archivo
-// entero a cualquiera con un enlace válido a un solo estudio.
-const API_ROUTES = [
-  { re: /^\/wado$/, studyFrom: 'query' },
-  { re: /^\/study\/([^/]+)$/, studyFrom: 'path' },
-  { re: /^\/study\/([^/]+)\/ohif$/, studyFrom: 'path' },
-];
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -100,35 +93,61 @@ function claimsFor(req) {
   return verifyLinkToken(cookies[COOKIE_NAME]);
 }
 
-/** El estudio que la petición está pidiendo, según la ruta. */
-function requestedStudy(route, match, params) {
-  return route.studyFrom === 'path' ? decodeURIComponent(match[1]) : params.get('studyUID');
+function aviso(res, status, titulo, detalle) {
+  res.writeHead(status, {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-store',
+  });
+  res.end(
+    '<!doctype html><meta charset="utf-8">' +
+      `<title>${titulo}</title>` +
+      '<body style="font:16px system-ui;padding:3rem;max-width:34rem;margin:auto">' +
+      `<h1 style="font-size:1.25rem">${titulo}</h1><p>${detalle}</p>`
+  );
 }
 
 /**
  * Canjea el enlace firmado por la cookie y manda al visor.
  *
  * Que el enlace sea corto y el servidor arme la URL del visor no es sólo
- * comodidad: así el estudio que se abre sale del token firmado y no de un
- * parámetro que cualquiera puede editar en la barra de direcciones.
+ * comodidad: con `scope=view` el estudio que se abre sale del token firmado y
+ * no de un parámetro que cualquiera puede editar en la barra de direcciones.
  */
 function openStudy(req, res, params) {
   const token = params.get('token') ?? '';
   const claims = verifyLinkToken(token);
   if (!claims) {
-    res.writeHead(401, { 'content-type': 'text/html; charset=utf-8' });
-    res.end('<!doctype html><meta charset="utf-8">'
-      + '<title>Enlace inválido</title>'
-      + '<body style="font:16px system-ui;padding:3rem;max-width:34rem;margin:auto">'
-      + '<h1 style="font-size:1.25rem">Enlace inválido o expirado</h1>'
-      + '<p>Pide un enlace nuevo a quien te compartió el estudio.</p>');
+    aviso(
+      res,
+      401,
+      'Enlace inválido o expirado',
+      'Pide un enlace nuevo a quien te compartió el estudio.'
+    );
     return;
   }
 
-  const manifest = `/api/study/${encodeURIComponent(claims.study_iuid)}`
-    + `?client=${encodeURIComponent(claims.client)}&format=ohif`;
-  const destino = `/viewer?url=${encodeURIComponent(manifest)}`
-    + `&StudyInstanceUIDs=${encodeURIComponent(claims.study_iuid)}`;
+  // Con `view` el estudio sale del token y no se discute. Con `session` el
+  // token sólo autoriza al centro, así que el estudio viene en la URL — es el
+  // que el radiólogo acaba de elegir en el RIS — y se valida su forma antes de
+  // reenviarlo. La compuerta de /api hace el resto: cualquier estudio, pero
+  // sólo de ese centro.
+  const study = claims.scope === 'session' ? (params.get('study') ?? '') : claims.study_iuid;
+  if (!STUDY_IUID_RE.test(study)) {
+    aviso(
+      res,
+      400,
+      'Falta el estudio',
+      'El enlace de sesión tiene que indicar con qué estudio abrir el visor.'
+    );
+    return;
+  }
+
+  const manifest =
+    `/api/study/${encodeURIComponent(study)}` +
+    `?client=${encodeURIComponent(claims.client)}&format=ohif`;
+  const destino =
+    `/viewer?url=${encodeURIComponent(manifest)}` +
+    `&StudyInstanceUIDs=${encodeURIComponent(study)}`;
 
   res.writeHead(302, {
     'set-cookie': buildCookie(token, claims, requestIsHttps(req)),
@@ -207,7 +226,9 @@ function serveStatic(res, pathname) {
       'content-type': type,
       'cache-control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
     });
-    fs.createReadStream(file).pipe(res).on('error', () => res.end());
+    fs.createReadStream(file)
+      .pipe(res)
+      .on('error', () => res.end());
   });
 }
 
@@ -228,30 +249,9 @@ http
 
     if (pathname.startsWith('/api/')) {
       const apiPath = pathname.slice(4);
-
-      let route, match;
-      for (const candidate of API_ROUTES) {
-        const m = candidate.re.exec(apiPath);
-        if (m) { route = candidate; match = m; break; }
-      }
-      if (!route) {
-        denied(res, 404, 'ruta no permitida');
-        return;
-      }
-
-      const claims = claimsFor(req);
-      if (!claims) {
-        denied(res, 401, 'sin autorización válida');
-        return;
-      }
-
-      // El token vale para UN estudio de UN cliente. Comparar contra lo que se
-      // está pidiendo es lo que impide que un enlace legítimo sirva de llave
-      // maestra para el resto del archivo.
-      const params = new URLSearchParams(search);
-      if (requestedStudy(route, match, params) !== claims.study_iuid
-          || params.get('client') !== claims.client) {
-        denied(res, 403, 'el enlace no autoriza ese estudio');
+      const rechazo = authorizeApiRequest(apiPath, new URLSearchParams(search), claimsFor(req));
+      if (rechazo) {
+        denied(res, rechazo.status, rechazo.message);
         return;
       }
 

@@ -58,3 +58,62 @@ unidades reales — un JPEG no sirve. Falta soportar
 `contentType=application/dicom`, que ya tiene todo lo necesario:
 `backend.materialize(info)` entrega la ruta local y se devuelve como
 `FileResponse`/`StreamingResponse` en vez de renderizar.
+
+## El visor persistente del puesto de diagnóstico
+
+El radiólogo trabaja con 2 o 3 pantallas: en una el RIS, en las otras el visor.
+Con MedDream ese visor **nunca se cierra** — el RIS le empuja estudios, le quita
+los ya informados y lo enfoca, todo por `postMessage`. Abrir una ventana nueva
+por estudio, como hacíamos, cuesta las mediciones, el layout y la caché de
+imágenes en cada informe.
+
+OHIF ya tenía casi todo: comandos para agregar estudios, cambiar el layout y
+colgar display sets, y `MultiMonitorService`, que **corre comandos en otra
+ventana del visor** (algo que MedDream no tiene). Lo único que faltaba era el
+canal entre orígenes distintos: no hay un solo `postMessage` en todo el
+repositorio, y `platform/docs/docs/deployment/iframe.md` lo menciona desde v3
+sin un ejemplo.
+
+Eso es `extensions/external-control/`: transporte y nada más. Cada acción que
+acepta termina en `commandsManager.runAsync(...)`.
+
+```
+BioRis  ──postMessage──▶  canal (lista de orígenes)  ──▶  comandos de OHIF
+```
+
+Se mantiene libre de todo lo nuestro —sesión, `client`, dicom-index— desde el
+primer commit, para poder ofrecerlo upstream sin separarlo después.
+
+### Dos bugs de upstream que había que rodear
+
+1. **`loadStudy` no funciona con `dicomjson`.**
+   `DicomJSONDataSource/index.js:200` hace `seriesKeys.find(key => filters[key])`
+   y `requestDisplaySetCreationForStudy` llama sin `filters` → `TypeError`. El
+   arranque normal no lo pisa porque `defaultRouteInit` sí pasa `filters`. Acá
+   se llama al data source con `filters: {}`.
+
+2. **El panel de estudios no era reactivo.**
+   `studyDisplayList` sólo se llenaba desde `StudyInstanceUIDs` del
+   `ImageViewerProvider`, que únicamente cambia con `location` — y eso remonta
+   el modo y borra los display sets. Un estudio agregado en caliente cargaba y
+   colgaba bien, pero no aparecía como bloque en el panel izquierdo. Se corrigió
+   en `PanelStudyBrowser.tsx` escuchando `DISPLAY_SETS_ADDED`, que es el único
+   cambio a un archivo de upstream y sirve igual para el panel con tracking
+   (lo envuelve).
+
+Los dos son PRs chicos e independientes, buenos para probar el proceso con los
+mantenedores antes de ofrecer la extensión.
+
+### Sesión (`scope=session`)
+
+El token de Mirror es por estudio: no sirve para un visor que va a recibir
+estudios que todavía no existen cuando se firma. Se agregó `scope=session`, que
+autoriza al **centro** y no a un estudio — que es lo que el radiólogo ya puede
+ver desde el listado de BioRis, así que no amplía su acceso real.
+
+La compuerta vive ahora en `toth/api-gate.mjs`, aparte de `server.mjs`, porque
+`server.mjs` levanta un puerto al importarse y ésta es justo la lógica que hay
+que poder probar sin levantar nada (`api-gate.test.mjs`). Sigue comparando el
+`client` siempre: un centro nunca alcanza el archivo de otro.
+
+Los enlaces `scope=view` de siempre no cambian.

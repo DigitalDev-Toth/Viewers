@@ -17,7 +17,10 @@ import crypto from 'node:crypto';
 // Lista para permitir rotación: se firma con el primero y se sigue aceptando
 // el anterior hasta que expiren los enlaces ya repartidos.
 export function linkSecrets(env = process.env) {
-  const many = (env.MIRROR_LINK_SECRETS ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  const many = (env.MIRROR_LINK_SECRETS ?? '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
   if (many.length) return many;
   const one = (env.MIRROR_LINK_SECRET ?? '').trim();
   return one ? [one] : [];
@@ -42,11 +45,22 @@ function signatureMatches(signingInput, providedB64, secret) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-const STUDY_IUID_RE = /^[0-9.]{10,128}$/;
+export const STUDY_IUID_RE = /^[0-9.]{10,128}$/;
 const CLIENT_RE = /^[a-z0-9_-]{1,32}$/;
 
+// `view` es el enlace de Mirror: un estudio, para compartir afuera.
+//
+// `session` es el puesto de diagnóstico: el radiólogo deja el visor abierto en
+// su segunda pantalla toda la jornada y el RIS le va empujando estudios. Atarlo
+// a un estudio haría falta reabrir el visor —y perder mediciones, layout y
+// caché— en cada informe. Vale para todo el centro (`client`), que es lo que el
+// radiólogo ya puede ver desde el RIS: no amplía su acceso real, sólo evita
+// pedir un token nuevo por estudio.
+const SCOPES = new Set(['view', 'session']);
+
 /**
- * Devuelve `{study_iuid, client, exp}` si el token es válido, o null.
+ * Devuelve `{scope, study_iuid, client, exp}` si el token es válido, o null.
+ * `study_iuid` es null en los de sesión, que no acotan por estudio.
  *
  * Nunca lanza ni distingue el motivo del rechazo hacia afuera: un atacante no
  * tiene por qué saber si falló la firma, el scope o la expiración.
@@ -76,12 +90,21 @@ export function verifyLinkToken(token, { secrets = linkSecrets(), maxTtlSeconds,
   }
   if (!payload || typeof payload !== 'object') return null;
 
-  if (payload.scope !== 'view') return null;
+  const scope = String(payload.scope ?? '');
+  if (!SCOPES.has(scope)) return null;
 
-  const studyIuid = String(payload.study_iuid ?? '');
   const client = String(payload.client ?? '');
-  if (!STUDY_IUID_RE.test(studyIuid)) return null;
   if (!CLIENT_RE.test(client)) return null;
+
+  let studyIuid = null;
+  if (scope === 'view') {
+    studyIuid = String(payload.study_iuid ?? '');
+    if (!STUDY_IUID_RE.test(studyIuid)) return null;
+  } else if (payload.study_iuid != null) {
+    // Un token de sesión que además nombra un estudio es ambiguo: no se sabría
+    // si la compuerta debe acotar o no. Se rechaza en vez de elegir por él.
+    return null;
+  }
 
   const iat = Number(payload.iat);
   const exp = Number(payload.exp);
@@ -95,7 +118,7 @@ export function verifyLinkToken(token, { secrets = linkSecrets(), maxTtlSeconds,
   const maxTtl = maxTtlSeconds ?? Number(process.env.MIRROR_MAX_TOKEN_TTL_SECONDS ?? 86400);
   if (exp <= iat || exp - iat > maxTtl) return null;
 
-  return { study_iuid: studyIuid, client, exp };
+  return { scope, study_iuid: studyIuid, client, exp };
 }
 
 export const COOKIE_NAME = 'mirror_auth';

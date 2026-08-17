@@ -21,12 +21,44 @@
 window.config = {
   name: 'config/toth.js',
   routerBasename: null,
-  extensions: [],
+  extensions: ['@ohif/extension-external-control'],
   modes: [],
   customizationService: {},
   showStudyList: false,
   maxNumberOfWebWorkers: 3,
   defaultDataSourceName: 'dicomjson',
+
+  // El puesto de diagnóstico: el radiólogo deja el visor abierto en su segunda
+  // pantalla toda la jornada y BioRis le va empujando estudios por
+  // postMessage, sin recargarlo — recargar cuesta las mediciones, el layout y
+  // la caché de imágenes.
+  //
+  // La lista es exacta y sin comodines: cualquier página de estos orígenes que
+  // consiga un handle a la ventana del visor puede manejarlo.
+  externalControl: {
+    allowedOrigins: [
+      'https://php8.cui.date',
+      // Desarrollo: BioRis servido en local contra este visor.
+      'http://localhost:8080',
+      'http://localhost:3000',
+    ],
+    // `RUN_COMMANDS` deja al host correr cualquier comando del visor. Agregar
+    // y quitar estudios no necesita eso, así que queda apagado hasta que haya
+    // una razón concreta.
+    allowRunCommands: false,
+  },
+
+  // Precarga reactiva al viewport activo. El servicio ya venía en OHIF y
+  // estaba apagado; en una sesión que dura horas es justo lo que evita que
+  // cada scroll pida imágenes que ya podrían estar en memoria.
+  studyPrefetcher: {
+    enabled: true,
+    displaySetsCount: 2,
+    // Peticiones en vuelo a la vez, no en total: cada una atraviesa el relay
+    // hasta el conector del centro, así que subirlo mucho lo congestiona.
+    maxNumPrefetchRequests: 10,
+    order: 'closest',
+  },
 
   dataSources: [
     {
@@ -43,9 +75,7 @@ window.config = {
         // puerto. En Cloud Run el manifiesto sale de `/api/...` del mismo
         // contenedor, y `resolveConfigFetchPolicy` deja pasar el mismo
         // origen sin consultar esta lista.
-        dangerouslyAllowedOriginsForAuthenticatedEnvironments: [
-          'http://localhost:3001',
-        ],
+        dangerouslyAllowedOriginsForAuthenticatedEnvironments: ['http://localhost:3001'],
       },
     },
   ],

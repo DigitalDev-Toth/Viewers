@@ -154,7 +154,25 @@ function PanelStudyBrowser({
     }
 
     StudyInstanceUIDs.forEach(sid => fetchStudiesForPatient(sid));
-  }, [StudyInstanceUIDs, dataSource, getStudiesForPatientByMRN, navigate]);
+
+    // A study can also arrive after the route was set up — a prior loaded on
+    // demand, or one pushed into a running session from outside. The route's
+    // StudyInstanceUIDs never change for those (changing them remounts the mode
+    // and drops every display set), so the display sets are the signal. Without
+    // this, such a study loads and hangs correctly but never appears as a block
+    // in the panel. `fetchedStudiesRef` keeps this to one query per study.
+    const { unsubscribe } = displaySetService.subscribe(
+      displaySetService.EVENTS.DISPLAY_SETS_ADDED,
+      ({ displaySetsAdded }) => {
+        const newStudyUIDs = new Set(
+          (displaySetsAdded ?? []).map(displaySet => displaySet.StudyInstanceUID).filter(Boolean)
+        );
+        newStudyUIDs.forEach(uid => fetchStudiesForPatient(uid));
+      }
+    );
+
+    return () => unsubscribe();
+  }, [StudyInstanceUIDs, dataSource, getStudiesForPatientByMRN, navigate, displaySetService]);
 
   // ~~ Initial Thumbnails
   useEffect(() => {

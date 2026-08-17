@@ -38,6 +38,12 @@ window.config = {
   externalControl: {
     allowedOrigins: [
       'https://php8.cui.date',
+      // El propio origen del visor, para que su página de demostración
+      // (/external-control/example.html) pueda manejarlo. Ahí sólo se sirve
+      // nuestro bundle estático — no hay subidas ni contenido de terceros —
+      // así que no agrega superficie real; si algún día ese origen sirviera
+      // algo ajeno, esta línea es la primera que hay que sacar.
+      'https://ohif.cui.date',
       // Desarrollo: BioRis servido en local contra este visor.
       'http://localhost:8080',
       'http://localhost:3000',

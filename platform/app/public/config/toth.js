@@ -75,16 +75,16 @@
     // Sólo se pueden mover ventanas abiertas por script, que es el caso.
     moveFirstWindow: true,
 
-    // El colgado según la forma física del monitor: gana el primero que
-    // calce. Los ids salen de extensions/default/src/hangingProtocols.
-    layouts: [
-      // Vertical — los 3MP de diagnóstico: una imagen grande.
-      { when: s => s.height >= s.width * 1.2, hangingProtocolId: '@ohif/mnGrid', stageId: '1x1' },
-      // Ultraancho: cabe la grilla de ocho.
-      { when: s => s.width >= s.height * 2, hangingProtocolId: '@ohif/mnGrid8', stageId: '4x2' },
-      // Horizontal corriente.
-      { when: () => true, hangingProtocolId: '@ohif/mnGrid', stageId: '2x2' },
-    ],
+    // Qué colgado abre en cada pantalla de diagnóstico, por posición. Lo que
+    // manda no es la forma del monitor —lo probamos y no aporta: dos monitores
+    // gemelos reciben lo mismo— sino qué ventana es y qué trae el estudio, que
+    // es algo que OHIF resuelve mejor que nosotros.
+    //
+    //   null  no forzar nada: que el visor elija, que para eso tiene reglas
+    //         por modalidad. Hoy eso es 1x1 con la primera serie.
+    //
+    // La última entrada vale para todas las pantallas que sigan.
+    protocols: [null, '@toth/secondScreen'],
 
     windowOptions: 'fullscreen=yes,location=no,menubar=no,scrollbars=no,status=no,titlebar=no',
   };
@@ -158,14 +158,11 @@
     return diagnostic.length ? { details, diagnostic } : null;
   }
 
-  const layoutFor = screen =>
-    MULTIMONITOR.layouts.find(layout => {
-      try {
-        return layout.when(screen);
-      } catch (error) {
-        return false;
-      }
-    });
+  /** El colgado de la pantalla `index`; `null` es «que decida OHIF». */
+  const protocolFor = index => {
+    const protocols = MULTIMONITOR.protocols;
+    return protocols[Math.min(index, protocols.length - 1)] ?? null;
+  };
 
   /** Una entrada de `multimonitor` por cada pantalla de diagnóstico. */
   function screensConfig({ details, diagnostic }) {
@@ -189,7 +186,7 @@
    *
    * Devuelve el número de pantalla de esta ventana.
    */
-  function applyUrl(diagnostic, layoutScreen) {
+  function applyUrl(diagnostic, index) {
     const url = new URL(window.location.href);
     const query = url.searchParams;
     const before = url.toString();
@@ -204,46 +201,31 @@
       }
     }
 
-    // El colgado sale del monitor donde la ventana está de verdad, no del que
-    // le tocaba: una pestaña no se puede mudar, y el radiólogo puede haberla
-    // arrastrado a otra pantalla. Gana lo físico.
-    const layout = layoutFor(layoutScreen);
     // Las ventanas hijas heredan la query de la madre, colgado incluido. El
-    // marcador dice para qué pantalla lo elegimos nosotros —su coordenada—:
-    // si no es la de esta ventana, lo recalculamos; si no hay marcador y ya
-    // venía un colgado, lo puso el RIS y no se toca.
+    // marcador dice para qué pantalla lo pusimos nosotros: si no es la de esta
+    // ventana, lo recalculamos; si no hay marcador y ya venía un colgado, lo
+    // puso el RIS y no se toca.
     const marker = query.get('hpAuto');
-    const stamp = String(layoutScreen.left);
+    const stamp = String(index);
     const chosenByHost =
       marker === null && [...query.keys()].some(key => key.toLowerCase() === 'hangingprotocolid');
 
-    if (layout && !chosenByHost && marker !== stamp) {
-      query.set('hangingProtocolId', layout.hangingProtocolId);
-      if (layout.stageId) {
-        query.set('stageId', layout.stageId);
+    if (!chosenByHost && marker !== stamp) {
+      const protocol = protocolFor(index);
+      if (protocol) {
+        query.set('hangingProtocolId', protocol);
       } else {
-        query.delete('stageId');
+        // Sin colgado forzado: es lo que le devuelve la decisión a OHIF. Hay
+        // que borrar el heredado, o esta ventana abriría con el de otra.
+        query.delete('hangingProtocolId');
       }
+      query.delete('stageId');
       query.set('hpAuto', stamp);
     }
 
     if (url.toString() !== before) {
       window.history.replaceState(null, '', url.toString());
     }
-  }
-
-  /** En qué pantalla está esta ventana, después de intentar mudarla. */
-  function physicalScreen({ details, diagnostic }, index) {
-    const x = window.screenLeft;
-    const y = window.screenTop;
-    const found = details.screens.find(
-      screen =>
-        x >= screen.left &&
-        x < screen.left + screen.width &&
-        y >= screen.top &&
-        y < screen.top + screen.height
-    );
-    return found || details.currentScreen || diagnostic[index] || diagnostic[0];
   }
 
   /** La pantalla que le toca a esta ventana; 0 es la que abrió el RIS. */
@@ -399,7 +381,6 @@
     left: screen.left,
     top: screen.top,
     isPrimary: screen.isPrimary,
-    layout: layoutFor(screen),
   });
 
   /** @returns {AppTypes.Config} */
@@ -407,7 +388,7 @@
     return {
       name: 'config/toth.js',
       routerBasename: null,
-      extensions: ['@ohif/extension-external-control'],
+      extensions: ['@ohif/extension-external-control', '@ohif/extension-toth-hps'],
       modes: [],
       customizationService: {},
       showStudyList: false,
@@ -488,7 +469,7 @@
         // Mudarla primero y mirar después dónde quedó: el colgado depende del
         // monitor real, y la mudanza no siempre se puede.
         placeFirstWindow(detected.diagnostic[index], index);
-        applyUrl(detected.diagnostic, physicalScreen(detected, index));
+        applyUrl(detected.diagnostic, index);
         if (index === 0 && detected.diagnostic.length > 1) {
           watchForBlockedWindows(detected.diagnostic.length);
         }
@@ -502,7 +483,7 @@
     // Handle para depurar en el puesto, desde la consola del visor.
     window.tothMonitors = {
       screens: detected ? detected.diagnostic.map(describe) : null,
-      layoutFor,
+      protocolFor,
       openWindows: openMissingWindows,
       on: () => {
         writePref('auto');

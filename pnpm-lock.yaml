@@ -855,6 +855,12 @@ importers:
         specifier: 7.0.3
         version: 7.0.3
 
+  extensions/toth-hps:
+    dependencies:
+      '@ohif/core':
+        specifier: workspace:*
+        version: link:../../platform/core
+
   extensions/usAnnotation:
     dependencies:
       '@babel/runtime':

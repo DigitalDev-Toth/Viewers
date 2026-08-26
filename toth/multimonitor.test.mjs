@@ -204,19 +204,23 @@ test('el nombre de la primera ventana es el que BioRis usa para reengancharla', 
   assert.equal(entrada(config).screens[1].id, 'ohif-diagnostico-2');
 });
 
-test('un monitor vertical abre con una imagen grande', async () => {
+test('el monitor principal no fuerza colgado: lo elige OHIF', async () => {
   const { query } = await arrancar({ screens: [RIS, VERTICAL] });
 
-  assert.equal(query.get('hangingProtocolId'), '@ohif/mnGrid');
-  assert.equal(query.get('stageId'), '1x1');
-  assert.equal(query.get('hpAuto'), String(VERTICAL.left));
+  assert.equal(query.has('hangingProtocolId'), false);
+  assert.equal(query.has('stageId'), false);
+  assert.equal(query.get('hpAuto'), '0');
 });
 
-test('un monitor ultraancho abre con la grilla de ocho', async () => {
-  const { query } = await arrancar({ screens: [RIS, ULTRAANCHO] });
+test('el segundo monitor muestra lo que el primero no', async () => {
+  const { query } = await arrancar({
+    screens: [RIS, VERTICAL, VERTICAL_2],
+    screenLeft: VERTICAL_2.left,
+    href: 'https://ohif.cui.date/viewer?multimonitor=auto&screenNumber=1',
+  });
 
-  assert.equal(query.get('hangingProtocolId'), '@ohif/mnGrid8');
-  assert.equal(query.get('stageId'), '4x2');
+  assert.equal(query.get('hangingProtocolId'), '@toth/secondScreen');
+  assert.equal(query.get('hpAuto'), '1');
 });
 
 test('la ventana que abrió el RIS se muda al monitor de diagnóstico', async () => {
@@ -238,27 +242,13 @@ test('una ventana que el radiólogo abrió a mano no se mueve sola', async () =>
   assert.equal(registro.movida, null);
 });
 
-test('si la ventana no se pudo mudar, el colgado sale del monitor donde quedó', async () => {
-  // Una pestaña —lo que abre hoy traza-almacenamiento— no se puede mover: se
-  // queda en el monitor del RIS, que es horizontal.
+test('el colgado no depende de en qué monitor terminó la ventana', async () => {
+  // Una pestaña no se puede mudar y se queda en el monitor del RIS. Da igual:
+  // lo que decide el colgado es qué ventana es, no dónde está.
   const { query } = await arrancar({ screens: [RIS, VERTICAL], opener: false });
 
-  assert.equal(query.get('hangingProtocolId'), '@ohif/mnGrid');
-  assert.equal(query.get('stageId'), '2x2');
-  assert.equal(query.get('hpAuto'), String(RIS.left));
-});
-
-test('una ventana arrastrada a otra pantalla recalcula su colgado al recargar', async () => {
-  const { query } = await arrancar({
-    screens: [RIS, VERTICAL],
-    opener: false,
-    // Ya pasó por acá una vez, en el monitor del RIS, y el radiólogo la movió.
-    screenLeft: VERTICAL.left,
-    href: 'https://ohif.cui.date/viewer?multimonitor=auto&screenNumber=0&hpAuto=0',
-  });
-
-  assert.equal(query.get('stageId'), '1x1');
-  assert.equal(query.get('hpAuto'), String(VERTICAL.left));
+  assert.equal(query.has('hangingProtocolId'), false);
+  assert.equal(query.get('hpAuto'), '0');
 });
 
 // ── tres monitores ─────────────────────────────────────────────────────────
@@ -326,21 +316,34 @@ test('la ventana hija no vigila: la vigilancia es de la primera', async () => {
 
 // ── la ventana hija ────────────────────────────────────────────────────────
 
-test('la ventana hija recalcula el colgado para su propio monitor', async () => {
+test('la ventana hija recalcula el colgado heredado de la madre', async () => {
   const { query } = await arrancar({
     screens: [RIS, VERTICAL, ULTRAANCHO],
-    // MultiMonitorService la abre ya puesta en su pantalla...
     screenLeft: ULTRAANCHO.left,
-    // ...y heredando la query de la madre, colgado incluido.
+    // MultiMonitorService la abre heredando la query de la madre, que no
+    // trae colgado forzado porque la madre es el monitor principal.
     href:
       'https://ohif.cui.date/viewer?url=%2Fapi%2Fstudy%2F1.2.3&multimonitor=auto' +
-      '&hangingProtocolId=%40ohif%2FmnGrid&stageId=1x1&hpAuto=1920&screenNumber=1',
+      '&hpAuto=0&screenNumber=1',
   });
 
   assert.equal(query.get('screenNumber'), '1');
-  assert.equal(query.get('hangingProtocolId'), '@ohif/mnGrid8');
-  assert.equal(query.get('stageId'), '4x2');
-  assert.equal(query.get('hpAuto'), String(ULTRAANCHO.left));
+  assert.equal(query.get('hangingProtocolId'), '@toth/secondScreen');
+  assert.equal(query.get('hpAuto'), '1');
+});
+
+test('un colgado heredado se borra si esta pantalla no lleva ninguno', async () => {
+  const { query } = await arrancar({
+    screens: [RIS, VERTICAL],
+    // Una recarga vieja, de cuando forzábamos colgado en el principal.
+    href:
+      'https://ohif.cui.date/viewer?multimonitor=auto&screenNumber=0' +
+      '&hangingProtocolId=%40ohif%2FmnGrid&stageId=2x2&hpAuto=1920',
+  });
+
+  assert.equal(query.has('hangingProtocolId'), false);
+  assert.equal(query.has('stageId'), false);
+  assert.equal(query.get('hpAuto'), '0');
 });
 
 test('la ventana hija no se vuelve a mover ni relanza a las demás', async () => {
@@ -395,7 +398,7 @@ test('la configuración del visor no cambia por todo esto', async () => {
   const { config } = await arrancar({ screens: [RIS, VERTICAL] });
 
   assert.equal(config.defaultDataSourceName, 'dicomjson');
-  assert.deepEqual([...config.extensions], ['@ohif/extension-external-control']);
+  assert.equal([...config.extensions].includes('@ohif/extension-toth-hps'), true);
   assert.equal(config.externalControl.allowedOrigins.includes('https://php8.cui.date'), true);
   assert.equal(config.externalControl.allowRunCommands, false);
   assert.equal(config.studyPrefetcher.enabled, true);

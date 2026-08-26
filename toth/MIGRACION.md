@@ -122,14 +122,31 @@ Con eso arma el arreglo `multimonitor` que `MultiMonitorService` espera, en vez
 de tenerlo escrito a mano como en `config/dev.js`. Las pantallas de diagnóstico
 son **todas menos la primaria**, que es donde vive el RIS, ordenadas de
 izquierda a derecha. Después reescribe la URL de la ventana (`history.replaceState`,
-antes de que monte el router) con `multimonitor=auto`, su `screenNumber`, y el
-colgado que le calza por la forma del monitor: vertical → una imagen grande,
-ultraancho → la grilla de ocho. El colgado sale del monitor **donde la ventana
-está de verdad**, no del que le tocaba — una pestaña no se puede mudar, y el
-radiólogo puede haberla arrastrado. El marcador `hpAuto` guarda la coordenada
-de esa pantalla, así una ventana hija (que hereda la query de la madre) o una
-ventana movida recalculan el suyo; un `hangingProtocolId` que venga del RIS no
-se toca.
+antes de que monte el router) con `multimonitor=auto`, su `screenNumber` y su
+colgado. El marcador `hpAuto` recuerda para qué pantalla lo pusimos, porque las
+ventanas hijas heredan la query de la madre y hay que recalcularlo; un
+`hangingProtocolId` que venga del RIS no se toca.
+
+El colgado va **por posición de la ventana**, en `MULTIMONITOR.protocols`:
+
+| Pantalla | Colgado |
+|---|---|
+| La principal | ninguno: decide OHIF, que tiene reglas por modalidad |
+| Las demás | `@toth/secondScreen` |
+
+Empezamos eligiéndolo por la forma del monitor —vertical, ultraancho— y no
+sirvió: dos monitores gemelos reciben lo mismo, y forzar un colgado le quitaba
+al visor el emparejamiento por modalidad que ya sabe hacer. El resultado
+concreto era que una radiografía de dos vistas abría en 2x2 en las dos
+pantallas y había que agrandar a mano. Lo que importa es qué ventana es y qué
+trae el estudio, no cuántos píxeles tiene el monitor.
+
+`@toth/secondScreen` vive en `extensions/toth-hps/` y muestra las series **desde
+la segunda**: dos series dan una en cada monitor, cinco dejan la primera en el
+principal y las otras cuatro en 2x2, y una sola deja el segundo monitor vacío —
+que es preferible a repetir la imagen. Está aparte de `external-control` a
+propósito: aquella se mantiene libre de todo lo nuestro para poder ofrecerla
+upstream, y ésta es lo contrario.
 
 Dos detalles que no son opcionales:
 

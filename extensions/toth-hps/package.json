@@ -1,0 +1,23 @@
+{
+  "name": "@ohif/extension-toth-hps",
+  "version": "3.14.0-beta.12",
+  "description": "Colgados propios del puesto de diagnóstico de Toth",
+  "author": "Toth",
+  "license": "MIT",
+  "main": "src/index.tsx",
+  "module": "src/index.tsx",
+  "engines": {
+    "node": ">=24"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@ohif/core": "workspace:*"
+  },
+  "scripts": {
+    "test:unit": "jest --watchAll",
+    "test:unit:ci": "jest --ci --runInBand --collectCoverage --passWithNoTests"
+  }
+}

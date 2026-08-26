@@ -142,11 +142,17 @@ pantallas y había que agrandar a mano. Lo que importa es qué ventana es y qué
 trae el estudio, no cuántos píxeles tiene el monitor.
 
 `@toth/secondScreen` vive en `extensions/toth-hps/` y muestra las series **desde
-la segunda**: dos series dan una en cada monitor, cinco dejan la primera en el
-principal y las otras cuatro en 2x2, y una sola deja el segundo monitor vacío —
-que es preferible a repetir la imagen. Está aparte de `external-control` a
-propósito: aquella se mantiene libre de todo lo nuestro para poder ofrecerla
-upstream, y ésta es lo contrario.
+la segunda**: dos series dan una en cada monitor, y una sola deja el segundo
+monitor vacío — que es preferible a repetir la imagen. Está aparte de
+`external-control` a propósito: aquella se mantiene libre de todo lo nuestro
+para poder ofrecerla upstream, y ésta es lo contrario.
+
+Abre en 1x1 y no en la grilla que mejor calce por un tercer bug de upstream:
+`Mode.tsx` le pasa `stageIndex: 0` a `hangingProtocolService.run` cuando la URL
+no trae `stageId`, y ese 0 gana sobre la escalera de `stageActivation` —que
+existe justamente para elegir la etapa según cuántas series haya— dejándola
+muerta para la apertura. Es también por qué `@ohif/mnGrid` abre siempre en 2x2.
+El rodeo es poner primera la etapa que sirve para el caso común.
 
 Dos detalles que no son opcionales:
 

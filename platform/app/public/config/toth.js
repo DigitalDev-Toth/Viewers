@@ -392,6 +392,12 @@
       modes: [],
       customizationService: {},
       showStudyList: false,
+
+      // El cartel de «for investigational use only» aparece en cada apertura
+      // del visor. Acá el visor es una herramienta de trabajo en un puesto de
+      // diagnóstico, no una demostración: el radiólogo lo vería veinte veces
+      // al día y no le dice nada que no sepa.
+      investigationalUseDialog: { option: 'never' },
       maxNumberOfWebWorkers: 3,
       defaultDataSourceName: 'dicomjson',
 

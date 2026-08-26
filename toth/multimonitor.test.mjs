@@ -402,4 +402,5 @@ test('la configuración del visor no cambia por todo esto', async () => {
   assert.equal(config.externalControl.allowedOrigins.includes('https://php8.cui.date'), true);
   assert.equal(config.externalControl.allowRunCommands, false);
   assert.equal(config.studyPrefetcher.enabled, true);
+  assert.equal(config.investigationalUseDialog.option, 'never');
 });

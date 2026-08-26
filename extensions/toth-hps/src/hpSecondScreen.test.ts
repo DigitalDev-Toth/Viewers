@@ -35,18 +35,30 @@ describe('@toth/secondScreen', () => {
     expect(indicesDe('1x1-desde-la-segunda')).toEqual([1]);
   });
 
-  it('las etapas van de más grande a más chica, que es el orden en que se eligen', () => {
-    const requeridos = hpSecondScreen.stages.map(
-      stage => stage.stageActivation?.enabled?.minViewportsMatched ?? 0
-    );
+  it('abre en 1x1: el modo entra siempre por la primera etapa', () => {
+    // No es un detalle de estilo. `Mode.tsx` le pasa `stageIndex: 0` a
+    // `hangingProtocolService.run` cuando la URL no trae `stageId`, y ese 0
+    // gana sobre `stageActivation`. Si la primera etapa fuera una grilla, un
+    // estudio de dos series abriría en 2x2 con tres huecos — que es
+    // exactamente lo que hace `@ohif/mnGrid`.
+    const [primera] = hpSecondScreen.stages;
 
-    expect(requeridos).toEqual([...requeridos].sort((a, b) => b - a));
+    expect(primera.id).toBe('1x1-desde-la-segunda');
+    expect(primera.viewports).toHaveLength(1);
   });
 
-  it('la última etapa acepta cualquier estudio, incluso uno de una sola serie', () => {
-    const ultima = hpSecondScreen.stages[hpSecondScreen.stages.length - 1];
+  it('la etapa de apertura acepta cualquier estudio, incluso uno de una sola serie', () => {
+    const [primera] = hpSecondScreen.stages;
 
-    expect(ultima.stageActivation).toBeUndefined();
-    expect(ultima.viewports[0].viewportOptions.allowUnmatchedView).toBe(true);
+    expect(primera.stageActivation).toBeUndefined();
+    expect(primera.viewports[0].viewportOptions.allowUnmatchedView).toBe(true);
+  });
+
+  it('las grillas piden series suficientes para llenarse', () => {
+    const grillas = hpSecondScreen.stages.slice(1);
+
+    grillas.forEach(stage => {
+      expect(stage.stageActivation.enabled.minViewportsMatched).toBe(stage.viewports.length);
+    });
   });
 });

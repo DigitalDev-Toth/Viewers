@@ -7,9 +7,19 @@ import { Types } from '@ohif/core';
  * reglas por modalidad y sabe más que nosotros—, así que acá no se decide qué
  * ver, sino desde dónde: este protocolo empieza en la **segunda** serie.
  *
- * Es `@ohif/mnGrid` corrido en uno. Las etapas se activan solas según cuántas
- * series queden: dos series dan una en cada monitor, cinco dejan la primera en
- * el principal y las otras cuatro acá en 2x2.
+ * Es `@ohif/mnGrid` corrido en uno.
+ *
+ * El orden de las etapas importa y no es el que uno esperaría: **el modo abre
+ * siempre en la primera**. `Mode.tsx` calcula el índice de etapa y, cuando la
+ * URL no trae `stageId`, `getStageIndex` devuelve 0; ese 0 llega a
+ * `hangingProtocolService.run` y gana sobre toda la escalera de
+ * `stageActivation`, que en la práctica sólo sirve para elegir a mano después.
+ * Es también la razón por la que `@ohif/mnGrid` abre siempre en 2x2 aunque el
+ * estudio traiga una sola serie.
+ *
+ * Así que la primera etapa es la que tiene que servir para el caso común —una
+ * serie por monitor— y las grillas quedan disponibles para cuando el
+ * radiólogo las pida.
  */
 
 const viewportOptions = {
@@ -58,15 +68,19 @@ const hpSecondScreen: Types.HangingProtocol.Protocol = {
     displaySets: [{ id: nextDisplaySetId, matchedDisplaySetsIndex: -1 }],
   },
   stages: [
-    // Gana la primera etapa que se active, así que van de más a menos: la
-    // grilla sólo aparece cuando hay series suficientes para llenarla.
     {
-      id: '2x2-desde-la-segunda',
-      name: '2x2',
-      stageActivation: { enabled: { minViewportsMatched: 4 } },
-      viewportStructure: grid(2, 2),
-      viewports: [1, 2, 3, 4].map(viewportShowing),
+      // La primera, y por lo tanto con la que abre. Sin regla de activación:
+      // tiene que aceptar cualquier estudio, incluido uno de una sola serie
+      // — ahí este monitor queda vacío, que es preferible a repetir la imagen
+      // del otro.
+      id: '1x1-desde-la-segunda',
+      name: '1x1',
+      viewportStructure: grid(1, 1),
+      viewports: [viewportShowing(1)],
     },
+    // Las grillas quedan para elegir a mano. Su `stageActivation` no decide
+    // con cuál se abre —eso lo fija el modo— pero sí impide elegir una que no
+    // se pueda llenar.
     {
       id: '2x1-desde-la-segunda',
       name: '2x1',
@@ -75,13 +89,11 @@ const hpSecondScreen: Types.HangingProtocol.Protocol = {
       viewports: [1, 2].map(viewportShowing),
     },
     {
-      // Sin regla de activación: es la última y tiene que aceptar cualquier
-      // cosa, incluido un estudio de una sola serie — ahí este monitor queda
-      // vacío, que es preferible a repetir la imagen del otro.
-      id: '1x1-desde-la-segunda',
-      name: '1x1',
-      viewportStructure: grid(1, 1),
-      viewports: [viewportShowing(1)],
+      id: '2x2-desde-la-segunda',
+      name: '2x2',
+      stageActivation: { enabled: { minViewportsMatched: 4 } },
+      viewportStructure: grid(2, 2),
+      viewports: [1, 2, 3, 4].map(viewportShowing),
     },
   ],
 };

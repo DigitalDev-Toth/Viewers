@@ -177,7 +177,17 @@ function createDicomJSONApi(dicomJsonConfig, servicesManager) {
         return getDirectURL(dicomJsonConfig, params);
       },
       series: {
-        metadata: async ({ filters, StudyInstanceUID, madeInClient = false, customSort } = {}) => {
+        // `filters` viene sin definir cuando el llamador no filtra series
+        // — `requestDisplaySetCreationForStudy`, que es el camino por el que
+        // entra un estudio a una sesión ya abierta, no lo pasa. Sin el valor
+        // por defecto, la lectura de más abajo es un TypeError y el estudio
+        // nunca carga.
+        metadata: async ({
+          filters = {},
+          StudyInstanceUID,
+          madeInClient = false,
+          customSort,
+        } = {}) => {
           if (!StudyInstanceUID) {
             throw new Error('Unable to query for SeriesMetadata without StudyInstanceUID');
           }

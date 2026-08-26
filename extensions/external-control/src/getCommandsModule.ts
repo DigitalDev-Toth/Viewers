@@ -170,10 +170,11 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
         }
 
         if (!displaySetsForStudy(StudyInstanceUID).length) {
-          // `filters: {}` rather than nothing: DicomJSONDataSource indexes into
-          // `filters` without a default and throws a TypeError on undefined
-          // (extensions/default/src/DicomJSONDataSource/index.js), which is why
-          // the stock `loadStudy` command cannot load a JSON-manifest study.
+          // `filters: {}` rather than nothing: DicomJSONDataSource used to index
+          // into `filters` without a default and throw a TypeError on
+          // undefined. That is fixed at the source now
+          // (extensions/default/src/DicomJSONDataSource/index.js), but passing
+          // it keeps this extension working against an unpatched OHIF.
           await dataSource.retrieve.series.metadata({
             StudyInstanceUID,
             filters: {},

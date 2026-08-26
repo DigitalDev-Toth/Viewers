@@ -87,10 +87,13 @@ primer commit, para poder ofrecerlo upstream sin separarlo después.
 ### Dos bugs de upstream que había que rodear
 
 1. **`loadStudy` no funciona con `dicomjson`.**
-   `DicomJSONDataSource/index.js:200` hace `seriesKeys.find(key => filters[key])`
+   `DicomJSONDataSource/index.js` hacía `seriesKeys.find(key => filters[key])`
    y `requestDisplaySetCreationForStudy` llama sin `filters` → `TypeError`. El
-   arranque normal no lo pisa porque `defaultRouteInit` sí pasa `filters`. Acá
-   se llama al data source con `filters: {}`.
+   arranque normal no lo pisa porque `defaultRouteInit` sí pasa `filters`.
+   Corregido en el data source (`filters = {}` por defecto); la extensión sigue
+   pasando `filters: {}` para andar también contra un OHIF sin el parche. El
+   comando `loadStudy` de upstream ahora funciona, que es de lo que cuelga el
+   menú «Launch On Second Monitor».
 
 2. **El panel de estudios no era reactivo.**
    `studyDisplayList` sólo se llenaba desde `StudyInstanceUIDs` del
@@ -103,6 +106,67 @@ primer commit, para poder ofrecerlo upstream sin separarlo después.
 
 Los dos son PRs chicos e independientes, buenos para probar el proceso con los
 mantenedores antes de ofrecer la extensión.
+
+### Los monitores del puesto
+
+`config/toth.js` dejó de ser un objeto y pasó a ser una **función** — OHIF
+acepta las dos formas (`await appConfigOrFunc(...)` en `appInit.js`) — para
+poder mirar las pantallas antes de que arranque el visor:
+
+| | |
+|---|---|
+| `screen.isExtended` | síncrono y sin permiso: ¿hay escritorio extendido? |
+| `getScreenDetails()` | la lista completa; pide el permiso de gestión de ventanas una vez |
+
+Con eso arma el arreglo `multimonitor` que `MultiMonitorService` espera, en vez
+de tenerlo escrito a mano como en `config/dev.js`. Las pantallas de diagnóstico
+son **todas menos la primaria**, que es donde vive el RIS, ordenadas de
+izquierda a derecha. Después reescribe la URL de la ventana (`history.replaceState`,
+antes de que monte el router) con `multimonitor=auto`, su `screenNumber`, y el
+colgado que le calza por la forma del monitor: vertical → una imagen grande,
+ultraancho → la grilla de ocho. El colgado sale del monitor **donde la ventana
+está de verdad**, no del que le tocaba — una pestaña no se puede mudar, y el
+radiólogo puede haberla arrastrado. El marcador `hpAuto` guarda la coordenada
+de esa pantalla, así una ventana hija (que hereda la query de la madre) o una
+ventana movida recalculan el suyo; un `hangingProtocolId` que venga del RIS no
+se toca.
+
+Dos detalles que no son opcionales:
+
+- **El id de la primera pantalla es `ohif-diagnostico`.** El servicio renombra
+  cada ventana con el id de su pantalla, y ese es el nombre por el que BioRis
+  reengancha la ventana abierta (`windowName` en `studies.js`). Cambiarlo hace
+  que el RIS abra una ventana nueva en cada clic.
+- **La ventana tiene que ser una ventana, no una pestaña.** `window.moveTo` no
+  mueve pestañas. Hoy `traza2/function.js` abre con `window.open(url, '_blank')`
+  y `external-control/client.js` con `windowFeatures: ''`: las dos formas dan
+  una pestaña en el navegador del RIS. Para que el visor se mude solo al monitor
+  de diagnóstico hay que abrirlo con features (`width=…,height=…`), del lado de
+  BioRis. Sin eso el resto igual funciona; sólo hay que arrastrarlo a mano una
+  vez, como hoy.
+- **El puesto necesita permitir ventanas emergentes para este origen.** Abrir el
+  tercer monitor es un `window.open` sin gesto detrás y el bloqueador se lo come.
+  Con `PopupsAllowedForUrls` en la política de Chrome, o el permiso del sitio una
+  vez, deja de ser un problema. Con dos monitores no hace falta: la única ventana
+  es la que ya abrió el RIS, y sólo se muda de pantalla.
+
+El permiso de gestión de ventanas sólo se puede pedir desde un clic, así que el
+primer arranque en cada puesto muestra un botón abajo a la derecha; una vez
+concedido queda guardado por origen y no vuelve a aparecer. Para apagar todo en
+un puesto puntual, desde la consola del visor: `window.tothMonitors.off()`.
+
+La lógica se prueba sin monitores en `toth/multimonitor.test.mjs`, que carga el
+archivo de configuración en un contexto con pantallas de mentira y mira la URL
+que queda y el arreglo que devuelve:
+
+```
+node --test toth/multimonitor.test.mjs
+```
+
+Es Chromium y sólo Chromium: `getScreenDetails` no existe en Firefox ni Safari,
+y `MultiMonitorService.createWindow` lo usa sin protegerse. Ahí el visor cae
+solo a una pantalla, pero el menú de upstream «Launch On Second Monitor»
+lanzaría un `TypeError` — no es un camino que mantengamos.
 
 ### Sesión (`scope=session`)
 

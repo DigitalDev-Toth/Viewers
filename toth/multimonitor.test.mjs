@@ -55,8 +55,16 @@ function contexto({
   pref = null,
   opener = true,
   screenLeft = 0,
+  ventanasAbiertas = null,
 } = {}) {
-  const registro = { movida: null, redimensionada: null, recargas: 0, botones: [] };
+  const registro = {
+    movida: null,
+    redimensionada: null,
+    recargas: 0,
+    botones: [],
+    timers: [],
+    lanzadas: 0,
+  };
   const almacenamiento = new Map(pref === null ? [] : [['toth.multimonitor', pref]]);
 
   const elemento = () => ({
@@ -95,6 +103,18 @@ function contexto({
       addEventListener: () => {},
     },
     getScreenDetails: async () => ({ screens, currentScreen: screens[0] }),
+    // El reloj lo corre el test: `correrTimers()`.
+    setTimeout: fn => registro.timers.push(fn),
+    // Lo que MultiMonitorService deja en la ventana, y los servicios que
+    // expone la extensión de cornerstone al entrar al modo.
+    multimonitor: ventanasAbiertas ? { launchWindows: ventanasAbiertas } : undefined,
+    services: {
+      multiMonitorService: {
+        launchAll: () => {
+          registro.lanzadas += 1;
+        },
+      },
+    },
     moveTo: (left, top) => {
       registro.movida = { left, top };
       window.screenLeft = left; // el navegador la mueve de verdad
@@ -121,6 +141,8 @@ function contexto({
     URL,
     URLSearchParams,
   };
+
+  registro.correrTimers = () => registro.timers.splice(0).forEach(fn => fn());
 
   vm.createContext(sandbox);
   vm.runInContext(CONFIG, sandbox);
@@ -258,6 +280,48 @@ test('las pantallas de diagnóstico quedan ordenadas de izquierda a derecha', as
     entrada(config).screens.map(s => s.screen),
     [2, 0]
   );
+});
+
+// ── la ventana que bloquea el navegador ────────────────────────────────────
+
+test('si el navegador bloqueó la ventana del otro monitor, ofrece abrirla', async () => {
+  const { registro } = await arrancar({ screens: [RIS, VERTICAL, VERTICAL_2] });
+
+  // Antes de que pase el rato no molesta: puede estar por abrirse.
+  assert.equal(registro.botones.length, 0);
+  registro.correrTimers();
+
+  assert.equal(registro.botones.length, 1);
+  assert.equal(registro.botones[0].textContent, 'Abrir el otro monitor');
+
+  await registro.botones[0].handlers.click();
+  assert.equal(registro.lanzadas, 1);
+});
+
+test('si la ventana del otro monitor ya está abierta, no ofrece nada', async () => {
+  const { registro } = await arrancar({
+    screens: [RIS, VERTICAL, VERTICAL_2],
+    ventanasAbiertas: [{ closed: false }, { closed: false }],
+  });
+  registro.correrTimers();
+
+  assert.equal(registro.botones.length, 0);
+});
+
+test('con una sola pantalla de diagnóstico no hay ninguna ventana que vigilar', async () => {
+  const { registro } = await arrancar({ screens: [RIS, VERTICAL] });
+
+  assert.equal(registro.timers.length, 0);
+});
+
+test('la ventana hija no vigila: la vigilancia es de la primera', async () => {
+  const { registro } = await arrancar({
+    screens: [RIS, VERTICAL, VERTICAL_2],
+    screenLeft: VERTICAL_2.left,
+    href: 'https://ohif.cui.date/viewer?multimonitor=auto&screenNumber=1',
+  });
+
+  assert.equal(registro.timers.length, 0);
 });
 
 // ── la ventana hija ────────────────────────────────────────────────────────

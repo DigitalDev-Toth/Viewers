@@ -92,6 +92,9 @@
   /** Preferencia del puesto, no del usuario: 'auto' | 'off'. */
   const PREF_KEY = 'toth.multimonitor';
 
+  /** Cuánto esperar antes de dar por bloqueada la ventana del otro monitor. */
+  const ESPERA_VENTANAS = 5000;
+
   const readPref = () => {
     try {
       return window.localStorage.getItem(PREF_KEY);
@@ -276,29 +279,24 @@
     }
   }
 
-  let setupOffered = false;
+  let buttonMounted = false;
 
   /**
-   * Un botón, una sola vez por puesto: el permiso de gestión de ventanas no
-   * se puede pedir sin un clic detrás.
+   * Un botón discreto abajo a la derecha. Existe porque las dos cosas que
+   * faltan —pedir el permiso y abrir la otra ventana— necesitan un clic
+   * detrás: el navegador no deja ninguna de las dos sin gesto del usuario.
    */
-  function offerSetup() {
-    if (setupOffered) {
+  function mountButton({ label, title, onClick }) {
+    if (buttonMounted) {
       return;
     }
-    setupOffered = true;
-    // En una ventana hija el permiso ya está dado; si no lo estuviera, no
-    // existiría la ventana.
-    if (new URL(window.location.href).searchParams.has('screenNumber')) {
-      return;
-    }
+    buttonMounted = true;
 
     const mount = () => {
       const button = window.document.createElement('button');
       button.type = 'button';
-      button.textContent = 'Usar los monitores de diagnóstico';
-      button.title =
-        'Detecta las pantallas del puesto y reparte el visor sobre las de diagnóstico. Se pregunta una sola vez.';
+      button.textContent = label;
+      button.title = title;
       button.style.cssText = [
         'position:fixed',
         'right:16px',
@@ -316,13 +314,11 @@
       button.addEventListener('click', async () => {
         button.disabled = true;
         try {
-          await window.getScreenDetails(); // acá sí hay gesto: Chrome pregunta
-          writePref('auto');
-          window.location.reload();
+          await onClick();
         } catch (error) {
           button.disabled = false;
-          button.textContent = 'Permiso denegado — reintentar';
-          console.warn('[toth] permiso de gestión de ventanas denegado:', error);
+          button.textContent = 'No se pudo — reintentar';
+          console.warn('[toth]', error);
         }
       });
 
@@ -334,6 +330,66 @@
     } else {
       window.document.addEventListener('DOMContentLoaded', mount);
     }
+  }
+
+  /** El permiso de gestión de ventanas, que sólo se puede pedir desde un clic. */
+  function offerSetup() {
+    // En una ventana hija el permiso ya está dado; si no lo estuviera, no
+    // existiría la ventana.
+    if (new URL(window.location.href).searchParams.has('screenNumber')) {
+      return;
+    }
+    mountButton({
+      label: 'Usar los monitores de diagnóstico',
+      title:
+        'Detecta las pantallas del puesto y reparte el visor sobre las de diagnóstico. Se pregunta una sola vez.',
+      onClick: async () => {
+        await window.getScreenDetails(); // acá sí hay gesto: Chrome pregunta
+        writePref('auto');
+        window.location.reload();
+      },
+    });
+  }
+
+  /** ¿Quedó alguna pantalla de diagnóstico sin su ventana? */
+  function missingWindows(count) {
+    const open = (window.multimonitor && window.multimonitor.launchWindows) || [];
+    for (let index = 1; index < count; index += 1) {
+      if (!open[index] || open[index].closed) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Abre las ventanas que falten. Pensado para colgar de un clic. */
+  function openMissingWindows() {
+    const service = window.services && window.services.multiMonitorService;
+    if (!service) {
+      throw new Error('el visor todavía no terminó de arrancar');
+    }
+    return service.launchAll();
+  }
+
+  /**
+   * `launchAll` corre al entrar al modo, sin gesto del usuario, así que el
+   * bloqueador de emergentes se come la ventana del segundo monitor salvo que
+   * el puesto tenga permitidas las ventanas emergentes para este origen. Si
+   * pasado un momento la ventana no está, ofrecemos abrirla desde un clic,
+   * que es lo único que el bloqueador nunca frena.
+   */
+  function watchForBlockedWindows(count) {
+    window.setTimeout(() => {
+      if (!missingWindows(count)) {
+        return;
+      }
+      mountButton({
+        label: 'Abrir el otro monitor',
+        title:
+          'El navegador bloqueó la ventana del segundo monitor de diagnóstico. Desde este botón se abre igual.',
+        onClick: openMissingWindows,
+      });
+    }, ESPERA_VENTANAS);
   }
 
   const describe = screen => ({
@@ -433,6 +489,9 @@
         // monitor real, y la mudanza no siempre se puede.
         placeFirstWindow(detected.diagnostic[index], index);
         applyUrl(detected.diagnostic, physicalScreen(detected, index));
+        if (index === 0 && detected.diagnostic.length > 1) {
+          watchForBlockedWindows(detected.diagnostic.length);
+        }
       }
     } catch (error) {
       // Un puesto sin monitores repartidos sigue siendo un visor que anda.
@@ -444,6 +503,7 @@
     window.tothMonitors = {
       screens: detected ? detected.diagnostic.map(describe) : null,
       layoutFor,
+      openWindows: openMissingWindows,
       on: () => {
         writePref('auto');
         window.location.reload();

@@ -144,11 +144,12 @@ Dos detalles que no son opcionales:
   de diagnóstico hay que abrirlo con features (`width=…,height=…`), del lado de
   BioRis. Sin eso el resto igual funciona; sólo hay que arrastrarlo a mano una
   vez, como hoy.
-- **El puesto necesita permitir ventanas emergentes para este origen.** Abrir el
-  tercer monitor es un `window.open` sin gesto detrás y el bloqueador se lo come.
-  Con `PopupsAllowedForUrls` en la política de Chrome, o el permiso del sitio una
-  vez, deja de ser un problema. Con dos monitores no hace falta: la única ventana
-  es la que ya abrió el RIS, y sólo se muda de pantalla.
+- **Las ventanas emergentes.** Abrir el tercer monitor es un `window.open` sin
+  gesto detrás y el bloqueador se lo come. Si a los cinco segundos la ventana no
+  está, aparece un botón que la abre desde el clic — un `window.open` con gesto
+  no lo frena nadie. Con `PopupsAllowedForUrls` en la política de Chrome, o el
+  permiso del sitio una vez, el botón no llega a aparecer. Con dos monitores no
+  aplica: la única ventana es la que ya abrió el RIS, y sólo se muda de pantalla.
 
 El permiso de gestión de ventanas sólo se puede pedir desde un clic, así que el
 primer arranque en cada puesto muestra un botón abajo a la derecha; una vez

@@ -79,7 +79,34 @@ export default async function init({
     debug: { statsOverlay },
   });
 
-  cornerstone.setUseCPURendering(Boolean(appConfig.useCPURendering));
+  // cs3DInit above already probes for a WebGL context and flips useCPURendering
+  // to true when the browser cannot give it one ("GPU not detected, using CPU
+  // rendering"). Do NOT clobber that with a blanket setUseCPURendering(false):
+  // on a machine with hardware acceleration off (or a blocklisted driver, or too
+  // many live WebGL contexts, which multimonitor sessions make easy to hit),
+  // canvas.getContext('webgl2') returns null and vtk.js then throws
+  // "Cannot create proxy with a non-object as target or handler" out of
+  // get3DContext, leaving a black viewport and an error modal. So only an
+  // explicit appConfig opt-in forces CPU; otherwise the auto-detected value
+  // stands. An explicit `?viewportRendering=gpu` below is still honored as an
+  // escape hatch for anyone who really wants to force the GPU path.
+  const renderingCapabilities = cornerstone.getRenderingCapabilities();
+
+  if (appConfig.useCPURendering) {
+    cornerstone.setUseCPURendering(true);
+  } else if (!renderingCapabilities.webgl) {
+    console.warn(
+      'No WebGL context available (hardware acceleration disabled, blocklisted driver, ' +
+        'or too many live contexts) - falling back to CPU rendering. MPR, 3D and volume ' +
+        'rendering are unavailable in this session.'
+    );
+  } else if (renderingCapabilities.softwareRasterizer) {
+    console.warn(
+      `WebGL is backed by a software rasterizer (${renderingCapabilities.renderer}); ` +
+        'rendering may be slow. Append `?viewportRendering=cpu` to the URL to force the ' +
+        'CPU path instead.'
+    );
+  }
 
   // All native ("next") Generic Viewport settings live under one config object:
   // appConfig.genericViewports = { enabled, viewportRendering }.

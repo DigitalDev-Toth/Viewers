@@ -35,6 +35,7 @@ const ACTION_COMMANDS = {
   [Actions.REMOVE_STUDIES]: 'removeStudies',
   [Actions.FOCUS]: 'focusStudy',
   [Actions.SET_LAYOUT]: 'setViewerLayout',
+  [Actions.RELOAD_SESSION]: 'reloadViewerSession',
   [Actions.GET_SESSION_STATE]: 'getSessionState',
 };
 

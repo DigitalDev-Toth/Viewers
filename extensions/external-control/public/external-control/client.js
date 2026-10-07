@@ -32,6 +32,14 @@
  * - **Answers must be matched to questions.** Every request carries a
  *   `requestId` and resolves its own promise, so two overlapping calls cannot
  *   collect each other's result.
+ *
+ * - **The viewer may have been opened by another tab.** The browser only lets
+ *   `window.open('', name)` find windows in this page's own browsing-context
+ *   group, so a worklist tab opened by hand cannot find the viewer another tab
+ *   opened. Before touching any window, the client asks over a
+ *   BroadcastChannel of the viewer's origin — directly when this page is on
+ *   that origin, through a hidden `external-control/bridge.html` iframe
+ *   otherwise — and if a viewer by that name answers, talks to it there.
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
@@ -55,7 +63,89 @@
     /** How long any one action may take before the promise rejects. */
     requestTimeoutMs: 60000,
     windowFeatures: '',
+    /** Look for an open viewer over the bus before opening windows. */
+    bus: true,
+    /** How long to listen on the bus before deciding nobody is there. */
+    busProbeMs: 1500,
   };
+
+  function copy(message) {
+    var out = {};
+    for (var key in message) {
+      out[key] = message[key];
+    }
+    return out;
+  }
+
+  /**
+   * The bus: a BroadcastChannel when this page shares the viewer's origin, the
+   * bridge iframe otherwise. Either way the same three operations.
+   */
+  function createBus(client) {
+    var viewerOrigin = client.settings.viewerOrigin;
+    if (typeof BroadcastChannel !== 'function') {
+      return null;
+    }
+
+    if (window.location.origin === viewerOrigin) {
+      var channel = new BroadcastChannel(CHANNEL);
+      channel.onmessage = function (event) {
+        client.handleBusData(event.data);
+      };
+      return {
+        post: function (message) {
+          var stamped = copy(message);
+          // Same origin: there is no bridge to state it for us.
+          stamped.origin = window.location.origin;
+          channel.postMessage(stamped);
+        },
+        isSource: function () {
+          return false;
+        },
+        destroy: function () {
+          channel.close();
+        },
+      };
+    }
+
+    var frame = document.createElement('iframe');
+    frame.style.display = 'none';
+    frame.setAttribute('aria-hidden', 'true');
+    frame.title = 'OHIF external control';
+    frame.src = viewerOrigin + '/external-control/bridge.html';
+    var loaded = false;
+    var waiting = [];
+    function deliver(message) {
+      try {
+        frame.contentWindow.postMessage(message, viewerOrigin);
+      } catch (e) {
+        /* the frame is gone; the caller times out */
+      }
+    }
+    frame.addEventListener('load', function () {
+      loaded = true;
+      waiting.splice(0).forEach(deliver);
+    });
+    (document.body || document.documentElement).appendChild(frame);
+
+    return {
+      post: function (message) {
+        if (loaded) {
+          deliver(message);
+        } else {
+          waiting.push(message);
+        }
+      },
+      isSource: function (source) {
+        return source === frame.contentWindow;
+      },
+      destroy: function () {
+        if (frame.parentNode) {
+          frame.parentNode.removeChild(frame);
+        }
+      },
+    };
+  }
 
   function ExternalControlClient(options) {
     var settings = {};
@@ -78,12 +168,17 @@
     this.nextId = 0;
     this.handshakeTimer = null;
     this.giveUpTimer = null;
+    /** 'window' or 'bus': how the viewer we are talking to was reached. */
+    this.via = null;
+    /** Bus only: the viewer page load we settled on. */
+    this.instance = null;
 
     var self = this;
     this.onMessage = function (event) {
       self.handleMessage(event);
     };
     window.addEventListener('message', this.onMessage);
+    this.bus = settings.bus ? (options.createBus || createBus)(this) : null;
   }
 
   /** Remembering that we opened it lets a later page skip the handshake wait. */
@@ -149,39 +244,86 @@
     if (!data || typeof data !== 'object' || data.channel !== CHANNEL) {
       return;
     }
+    if (this.bus && event.source && this.bus.isSource(event.source)) {
+      this.handleBusData(data);
+      return;
+    }
 
     if (data.type === 'READY') {
       // Trust the window that actually answered, not the one we think we
       // opened: a reattach by name can hand us a different proxy.
-      if (event.source) {
-        this.viewerWindow = event.source;
-      }
-      this.capabilities = data.capabilities || [];
-      this.stopHandshake();
-      this.rememberOpened();
-      var wasConnected = this.connected;
-      this.connected = true;
-      this.flush();
-      if (!wasConnected) {
-        this.emit('ready', { capabilities: this.capabilities });
-      }
+      this.onReady(data, 'window', event.source);
       return;
     }
 
     if (data.type === 'RESULT') {
-      var entry = this.pending[data.requestId];
-      if (!entry) {
+      this.handleResult(data);
+    }
+  };
+
+  /**
+   * Traffic off the bus. Every viewer window in the browser is on it, so a
+   * READY counts only from the one with our window name, and once settled on
+   * a page load we stay with it — unless that same name announces itself
+   * unprompted, which is the viewer having been reloaded under us.
+   */
+  ExternalControlClient.prototype.handleBusData = function (data) {
+    if (!data || typeof data !== 'object' || data.channel !== CHANNEL) {
+      return;
+    }
+    if (data.type === 'READY') {
+      if (data.viewerId !== this.settings.windowName) {
         return;
       }
-      delete this.pending[data.requestId];
-      clearTimeout(entry.timer);
-      if (data.ok) {
-        entry.resolve(data.result);
-      } else {
-        var error = new Error((data.error && data.error.message) || 'la acción falló');
-        error.code = (data.error && data.error.code) || 'INTERNAL';
-        entry.reject(error);
+      if (this.connected && this.via === 'bus' && data.instance !== this.instance) {
+        if (!data.requestId) {
+          this.instance = data.instance;
+        }
+        return;
       }
+      if (this.connected && this.via === 'window') {
+        return;
+      }
+      this.onReady(data, 'bus', null);
+      return;
+    }
+    if (data.type === 'RESULT') {
+      this.handleResult(data);
+    }
+  };
+
+  ExternalControlClient.prototype.onReady = function (data, via, source) {
+    if (source) {
+      this.viewerWindow = source;
+    }
+    if (!this.connected) {
+      this.via = via;
+      this.instance = data.instance || null;
+    }
+    this.capabilities = data.capabilities || [];
+    this.stopHandshake();
+    this.rememberOpened();
+    var wasConnected = this.connected;
+    this.connected = true;
+    this.flush();
+    if (!wasConnected) {
+      this.emit('ready', { capabilities: this.capabilities, via: this.via });
+    }
+  };
+
+  ExternalControlClient.prototype.handleResult = function (data) {
+    var entry = this.pending[data.requestId];
+    if (!entry) {
+      return;
+    }
+    delete this.pending[data.requestId];
+    clearTimeout(entry.timer);
+    if (data.ok) {
+      entry.resolve(data.result);
+    } else {
+      var error = new Error((data.error && data.error.message) || 'la acción falló');
+      error.code = (data.error && data.error.code) || 'INTERNAL';
+      entry.reject(error);
     }
   };
 
@@ -192,7 +334,19 @@
     this.giveUpTimer = null;
   };
 
+  ExternalControlClient.prototype.postBusHandshake = function () {
+    if (this.bus) {
+      this.bus.post({
+        channel: CHANNEL,
+        version: PROTOCOL_VERSION,
+        action: 'HANDSHAKE',
+        target: this.settings.windowName,
+      });
+    }
+  };
+
   ExternalControlClient.prototype.postHandshake = function () {
+    this.postBusHandshake();
     if (!this.viewerWindow) {
       return;
     }
@@ -233,8 +387,73 @@
    * the named window synchronously in the click, and hand it over once the
    * answer arrives — by then the gesture is long gone and a `window.open` of
    * our own could be blocked.
+   *
+   * Before any of that, a viewer by this window name is looked for on the
+   * bus; if one answers, no window is opened or touched. A host that handed a
+   * window over can tell by `client.via === 'bus'` that it went unused.
    */
   ExternalControlClient.prototype.open = function (url, options) {
+    var self = this;
+    var force = Boolean(options && options.force);
+    var handle = this.viewerWindow && !this.viewerWindow.closed;
+
+    if (this.connected && this.via === 'bus' && !handle) {
+      if (!force) {
+        return Promise.resolve(this);
+      }
+      return this.reloadOverBus(url || this.settings.openUrl);
+    }
+    if (force || !this.bus || this.connected) {
+      return this.openWindow(url, options);
+    }
+    return this.probeBus().then(function (found) {
+      return found ? self : self.openWindow(url, options);
+    });
+  };
+
+  /** Ask on the bus whether a viewer by our window name is out there. */
+  ExternalControlClient.prototype.probeBus = function () {
+    var self = this;
+    if (this.connected) {
+      return Promise.resolve(true);
+    }
+    return new Promise(function (resolve) {
+      var interval = null;
+      var timer = null;
+      function finish(found) {
+        clearInterval(interval);
+        clearTimeout(timer);
+        self.off('ready', onReady);
+        resolve(found);
+      }
+      function onReady() {
+        finish(true);
+      }
+      self.on('ready', onReady);
+      self.postBusHandshake();
+      interval = setInterval(function () {
+        self.postBusHandshake();
+      }, self.settings.handshakeIntervalMs);
+      timer = setTimeout(function () {
+        finish(self.connected);
+      }, self.settings.busProbeMs);
+    });
+  };
+
+  /**
+   * Reload a viewer we only know through the bus. With no handle to navigate,
+   * the viewer is asked to do it itself; it only accepts its own `/open` link.
+   */
+  ExternalControlClient.prototype.reloadOverBus = function (openUrl) {
+    var self = this;
+    return this.send('RELOAD_SESSION', { url: openUrl }).then(function () {
+      self.connected = false;
+      self.instance = null;
+      return self.waitForReady(openUrl, { alreadyNavigated: true });
+    });
+  };
+
+  ExternalControlClient.prototype.openWindow = function (url, options) {
     var openUrl = url || this.settings.openUrl;
     var force = Boolean(options && options.force);
     var reattach = Boolean(options && options.reattach);
@@ -375,6 +594,12 @@
   };
 
   ExternalControlClient.prototype.transmit = function (message) {
+    if (this.via === 'bus' && this.bus) {
+      var pinned = copy(message);
+      pinned.instance = this.instance;
+      this.bus.post(pinned);
+      return;
+    }
     try {
       this.viewerWindow.postMessage(message, this.settings.viewerOrigin);
     } catch (e) {
@@ -410,7 +635,9 @@
 
       self.pending[requestId] = { resolve: resolve, reject: reject, timer: timer };
 
-      if (self.connected && self.viewerWindow && !self.viewerWindow.closed) {
+      var reachable =
+        self.via === 'bus' || (self.viewerWindow && !self.viewerWindow.closed);
+      if (self.connected && reachable) {
         self.transmit(message);
       } else {
         self.queue.push(message);
@@ -470,6 +697,10 @@
   /** Stop listening. The viewer window is left alone. */
   ExternalControlClient.prototype.destroy = function () {
     this.stopHandshake();
+    if (this.bus) {
+      this.bus.destroy();
+      this.bus = null;
+    }
     window.removeEventListener('message', this.onMessage);
   };
 

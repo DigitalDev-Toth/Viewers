@@ -63,6 +63,23 @@ export function assertManifestAllowed(url: string, allowedManifestOrigins: strin
   );
 }
 
+/** The only place RELOAD_SESSION may send the viewer: its own `/open`. */
+export function assertReloadUrl(url: unknown): string {
+  let target: URL;
+  try {
+    target = new URL(String(url), window.location.href);
+  } catch {
+    throw new ExternalControlError(ErrorCodes.BAD_REQUEST, 'la URL no es válida');
+  }
+  if (target.origin !== window.location.origin || target.pathname !== '/open') {
+    throw new ExternalControlError(
+      ErrorCodes.FORBIDDEN,
+      'sólo se puede recargar con el enlace /open de este visor'
+    );
+  }
+  return target.href;
+}
+
 function getCommandsModule({ servicesManager, commandsManager, extensionManager }: withAppTypes) {
   const { displaySetService, hangingProtocolService, viewportGridService, customizationService } =
     servicesManager.services;
@@ -336,6 +353,22 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
     },
 
     /**
+     * Reload this window through the viewer's own `/open?token=…` link.
+     *
+     * A host that found the viewer over the bus has no window handle, so when
+     * the running session lacks the credentials it needs — a window opened
+     * with a one-study link, asked to load another — this is its only way to
+     * hand over new ones. Only that one path on this same origin is accepted:
+     * anything else would let an allowed host send the viewer anywhere.
+     */
+    reloadViewerSession: ({ url }) => {
+      const target = assertReloadUrl(url);
+      // After the answer is on its way: navigating first would drop it.
+      setTimeout(() => window.location.assign(target), 50);
+      return { reloading: true };
+    },
+
+    /**
      * Drop studies the radiologist is done with, freeing their pixels.
      *
      * Viewports are emptied before the display sets go, otherwise the grid is
@@ -424,6 +457,7 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
       removeStudies: { commandFn: actions.removeStudies },
       focusStudy: { commandFn: actions.focusStudy },
       setViewerLayout: { commandFn: actions.setViewerLayout },
+      reloadViewerSession: { commandFn: actions.reloadViewerSession },
       getSessionState: { commandFn: actions.getSessionState },
     },
     defaultContext: 'DEFAULT',

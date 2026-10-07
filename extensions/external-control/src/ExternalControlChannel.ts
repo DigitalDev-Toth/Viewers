@@ -1,6 +1,15 @@
 /**
- * The viewer half of the channel: one `message` listener, an origin allowlist,
- * and a request/response correlation.
+ * The viewer half of the channel: an origin allowlist, a request/response
+ * correlation, and two ways in.
+ *
+ * - `postMessage` on the window, from whoever holds a handle to it (the page
+ *   that opened it, or one that found it by name).
+ * - A `BroadcastChannel` on the viewer's own origin, from a page that holds no
+ *   handle at all. Browsers only let `window.open('', name)` find windows in
+ *   the caller's own browsing-context group, so a worklist tab opened by hand
+ *   can never reach a viewer another tab opened. The bus reaches every viewer
+ *   window of this origin in the browser; a host on another origin talks to it
+ *   through `external-control/bridge.html`, which it embeds hidden.
  *
  * It knows nothing about OHIF on purpose — it is handed a map of action name →
  * async handler and does the transport. That keeps the security-relevant part
@@ -33,6 +42,20 @@ const LABEL = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
 type SubdomainRule = { prefix: string; suffix: string };
 
+/**
+ * The bus is same-origin only, so whoever writes to it runs our code. Pages
+ * that relay for another origin (the bridge) state that origin in `origin`,
+ * taken from the browser's own MessageEvent, and it is checked like any other.
+ */
+type BusLike = {
+  postMessage(message: unknown): void;
+  addEventListener(type: 'message', listener: (event: MessageEvent) => void): void;
+  removeEventListener(type: 'message', listener: (event: MessageEvent) => void): void;
+  close?(): void;
+};
+
+type Reply = (message: Ready | Result) => void;
+
 type Options = {
   /**
    * Exact origins, e.g. `https://ris.example.org`, or a single-label subdomain
@@ -42,6 +65,11 @@ type Options = {
   handlers: Record<string, Handler>;
   /** Injected for tests; defaults to the real window. */
   targetWindow?: Window;
+  /**
+   * Injected for tests; defaults to a BroadcastChannel named after CHANNEL.
+   * `null` turns the bus off.
+   */
+  createBus?: (() => BusLike) | null;
   logger?: Pick<Console, 'warn' | 'error'>;
 };
 
@@ -52,9 +80,30 @@ export default class ExternalControlChannel {
   private readonly window: Window;
   private readonly logger: Pick<Console, 'warn' | 'error'>;
   private listener?: (event: MessageEvent) => void;
+  private readonly createBus: (() => BusLike) | null;
+  private bus?: BusLike;
+  private busListener?: (event: MessageEvent) => void;
+  /**
+   * Different on every page load. A host that found this viewer over the bus
+   * pins its requests to it, so a second window answering to the same name —
+   * possible across browsing-context groups — never runs the same action.
+   */
+  readonly instance = Math.random().toString(36).slice(2) + Date.now().toString(36);
 
-  constructor({ allowedOrigins = [], handlers, targetWindow, logger = console }: Options) {
+  constructor({
+    allowedOrigins = [],
+    handlers,
+    targetWindow,
+    logger = console,
+    createBus,
+  }: Options) {
     this.window = targetWindow ?? (globalThis as unknown as Window);
+    this.createBus =
+      createBus !== undefined
+        ? createBus
+        : typeof BroadcastChannel === 'function'
+          ? () => new BroadcastChannel(CHANNEL) as unknown as BusLike
+          : null;
     this.logger = logger;
     this.handlers = handlers;
     this.allowedOrigins = allowedOrigins.filter(origin => {
@@ -114,6 +163,7 @@ export default class ExternalControlChannel {
     }
     this.listener = event => this.handleMessage(event);
     this.window.addEventListener('message', this.listener as EventListener);
+    this.startBus();
     this.announceReady();
   }
 
@@ -123,6 +173,46 @@ export default class ExternalControlChannel {
     }
     this.window.removeEventListener('message', this.listener as EventListener);
     this.listener = undefined;
+    if (this.bus && this.busListener) {
+      this.bus.removeEventListener('message', this.busListener);
+      this.bus.close?.();
+    }
+    this.bus = undefined;
+    this.busListener = undefined;
+  }
+
+  private startBus(): void {
+    if (!this.createBus) {
+      return;
+    }
+    try {
+      this.bus = this.createBus();
+    } catch (error) {
+      this.logger.warn('[external-control] sin bus entre pestañas:', error);
+      return;
+    }
+    this.busListener = event => this.handleBusMessage(event);
+    this.bus.addEventListener('message', this.busListener);
+    // A host waiting on the bus — the viewer was reloaded under it, say —
+    // learns the new instance without having to ask.
+    this.postToBus(this.readyMessage());
+  }
+
+  /** The name hosts address this window by; read late, it can be renamed. */
+  private get viewerId(): string {
+    try {
+      return this.window.name ?? '';
+    } catch {
+      return '';
+    }
+  }
+
+  private postToBus(message: Ready | Result): void {
+    try {
+      this.bus?.postMessage(message);
+    } catch (error) {
+      this.logger.warn('[external-control] no se pudo responder por el bus:', error);
+    }
   }
 
   /**
@@ -159,6 +249,8 @@ export default class ExternalControlChannel {
       version: PROTOCOL_VERSION,
       type: MessageTypes.READY,
       capabilities: this.capabilities,
+      viewerId: this.viewerId,
+      instance: this.instance,
       ...(requestId ? { requestId } : {}),
     };
   }
@@ -173,7 +265,7 @@ export default class ExternalControlChannel {
     }
   }
 
-  private async handleMessage(event: MessageEvent): Promise<void> {
+  private handleMessage(event: MessageEvent): void {
     if (!this.isAllowedOrigin(event.origin)) {
       return;
     }
@@ -187,18 +279,50 @@ export default class ExternalControlChannel {
     if (!source) {
       return;
     }
+    void this.dispatch(data, message => this.post(source, event.origin, message));
+  }
+
+  /**
+   * A request off the bus. The bus spans every viewer window in the browser,
+   * so beyond the origin check this also decides whether the request is for
+   * *this* window: a handshake by name, everything else by instance.
+   */
+  private handleBusMessage(event: MessageEvent): void {
+    const data = event.data as Record<string, unknown> | null;
+    if (!data || typeof data !== 'object' || data.channel !== CHANNEL) {
+      return;
+    }
+    const origin = data.origin;
+    if (typeof origin !== 'string' || !this.isAllowedOrigin(origin)) {
+      return;
+    }
+    if (data.action === Actions.HANDSHAKE) {
+      // No target means "whoever is out there": every viewer answers, and the
+      // host picks. A target that is not us is someone else's handshake.
+      if (typeof data.target === 'string' && data.target !== this.viewerId) {
+        return;
+      }
+    } else if (data.instance !== this.instance) {
+      return;
+    }
+    void this.dispatch(data, message => this.postToBus(message));
+  }
+
+  private async dispatch(data: Record<string, unknown>, send: Reply): Promise<void> {
     // Our own outgoing messages come back when the host is an iframe on the
-    // same page; they carry `type` and no `action`.
+    // same page, and every viewer's answers travel the bus; they carry `type`
+    // and no `action`.
     if (typeof data.action !== 'string') {
       return;
     }
 
     const requestId = typeof data.requestId === 'string' ? data.requestId : undefined;
     const reply = (result: Omit<Result, 'channel' | 'version' | 'type' | 'requestId'>) =>
-      this.post(source, event.origin, {
+      send({
         channel: CHANNEL,
         version: PROTOCOL_VERSION,
         type: MessageTypes.RESULT,
+        instance: this.instance,
         ...(requestId ? { requestId } : {}),
         ...result,
       });
@@ -218,7 +342,7 @@ export default class ExternalControlChannel {
     // unprompted READY needs a way to ask for it, and it must work before any
     // handler is reachable.
     if (data.action === Actions.HANDSHAKE) {
-      this.post(source, event.origin, this.readyMessage(requestId));
+      send(this.readyMessage(requestId));
       return;
     }
 

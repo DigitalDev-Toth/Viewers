@@ -84,6 +84,32 @@ Three things go wrong when it is, and none of them announce themselves:
   exists is simply gone. Calls made too early are queued and flushed on READY.
 - **Answers have to be matched to questions.** Every request carries a
   `requestId` and resolves its own promise.
+- **The viewer may belong to another tab.** `window.open('', name)` only finds
+  windows in the caller's own browsing-context group, so a worklist tab opened
+  by hand cannot find the viewer another tab opened. See below.
+
+### Reaching a viewer another tab opened
+
+Besides `postMessage` on its window, the viewer listens on a
+`BroadcastChannel('ohif-external-control')` of its own origin. Before touching
+any window, `open()` asks on that bus for a viewer with its `windowName`; if one
+answers, it talks to it there and opens nothing (`client.via === 'bus'`).
+
+The bus is same-origin, so a host on another origin goes through
+`external-control/bridge.html`, which the client embeds hidden. The bridge only
+accepts messages from the page that embeds it, stamps each request with the
+`origin` the browser reported, and hands back only the answers to its own
+requests. The viewer checks that origin against `allowedOrigins` as usual.
+
+Two consequences worth knowing:
+
+- Storage partitioning keys the channel by top-level site, so the bridge meets
+  only viewers whose top level is the same site as the host — `*.cui.date` with
+  `ohif.cui.date`, but not `localhost` with `ohif.cui.date`.
+- Every viewer window hears every request. A handshake names the window
+  (`target`); after it, requests carry the `instance` of the page load that
+  answered, so a second window with the same name never runs them too.
+  Reloading that same viewer is picked up from its unprompted READY.
 
 ## Protocol
 
@@ -109,6 +135,7 @@ Viewer → host:
 | `REMOVE_STUDIES` | `{studies}` | empties their viewports, purges their images |
 | `FOCUS` | `{StudyInstanceUID}` or `{displaySetInstanceUID}` | hangs it and raises the window |
 | `SET_LAYOUT` | `{numRows, numCols}` (1–4 each) | splits the grid; new viewports get series not yet shown |
+| `RELOAD_SESSION` | `{url}` (only this viewer's `/open`) | reloads with new credentials, for hosts with no window handle |
 | `GET_SESSION_STATE` | — | what the session currently holds |
 | `RUN_COMMANDS` | `{commands}` | any command; only with `allowRunCommands` |
 

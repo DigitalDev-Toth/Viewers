@@ -49,7 +49,7 @@
       <input id="url" placeholder="https://ohif.cui.date/open?token=…">
     </div>
   </div>
-  <label for="nombre">Nombre de la ventana (es lo que permite reencontrarla)</label>
+  <label for="nombre">Nombre de la ventana del visor (lo encuentra aunque la haya abierto otra pestaña)</label>
   <input id="nombre" value="OHIF Viewer">
   <div class="buttons">
     <button id="conectar">Abrir o reenganchar</button>
@@ -118,6 +118,12 @@
   var $ = function (id) { return document.getElementById(id); };
   var viewer = null;
 
+  // La página la sirve el propio visor, así que por defecto el visor es éste:
+  // sirve igual en producción, en QA y en desarrollo.
+  if (/^https?:$/.test(location.protocol)) {
+    $('origen').value = location.origin;
+  }
+
   function log(mensaje, clase) {
     var linea = document.createElement('div');
     if (clase) { linea.className = clase; }
@@ -141,7 +147,10 @@
     viewer.on('ready', function (info) {
       estado('conectado');
       $('cerrar').disabled = false;
-      log('READY · acepta: ' + info.capabilities.join(', '), 'ok');
+      // Por el bus el visor puede haberlo abierto cualquier pestaña; por
+      // ventana, es la que esta página abrió o encontró por nombre.
+      log('READY por ' + (info.via === 'bus' ? 'el bus' : 'la ventana') +
+        ' · acepta: ' + info.capabilities.join(', '), 'ok');
     });
 
     estado('esperando al visor…');

@@ -58,7 +58,8 @@ describe('OHIFExternalControl client', () => {
     jest.useFakeTimers();
     window.localStorage.clear();
     viewerWindow = fakeViewerWindow();
-    client = OHIFExternalControl.connect({ viewerOrigin: VIEWER, openUrl: VIEWER + '/' });
+    // El bus tiene sus propias pruebas abajo; aquí sólo el camino por ventana.
+    client = OHIFExternalControl.connect({ viewerOrigin: VIEWER, openUrl: VIEWER + '/', bus: false });
   });
 
   afterEach(() => {
@@ -336,5 +337,124 @@ describe('OHIFExternalControl client', () => {
 
       expect(escucha).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe('OHIFExternalControl client por el bus', () => {
+  let bus;
+  let client;
+
+  /** What the viewer would answer over the bus. */
+  const busReady = extra =>
+    client.handleBusData({
+      channel: 'ohif-external-control',
+      version: 1,
+      type: 'READY',
+      capabilities: ['ADD_STUDIES'],
+      viewerId: 'OHIF Viewer',
+      instance: 'carga-1',
+      requestId: 'hs',
+      ...extra,
+    });
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    window.localStorage.clear();
+    bus = { post: jest.fn(), isSource: () => false, destroy: jest.fn() };
+    window.open = jest.fn();
+    client = OHIFExternalControl.connect({
+      viewerOrigin: VIEWER,
+      openUrl: VIEWER + '/open',
+      windowName: 'OHIF Viewer',
+      createBus: () => bus,
+    });
+  });
+
+  afterEach(() => {
+    client.destroy();
+    jest.useRealTimers();
+  });
+
+  it('pregunta primero por el bus, con el nombre de la ventana', () => {
+    client.open();
+
+    expect(bus.post).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'HANDSHAKE', target: 'OHIF Viewer' })
+    );
+    expect(window.open).not.toHaveBeenCalled();
+  });
+
+  it('si un visor contesta por el bus no abre ni toca ninguna ventana', async () => {
+    const abierto = client.open();
+    busReady();
+    await abierto;
+
+    // Es el caso que motiva todo esto: el visor lo abrió otra pestaña.
+    expect(window.open).not.toHaveBeenCalled();
+    expect(client.via).toBe('bus');
+  });
+
+  it('si nadie contesta a tiempo, recién ahí abre la ventana', async () => {
+    window.open = jest.fn(() => ({ postMessage: jest.fn(), closed: false }));
+    const abierto = client.open();
+    abierto.catch(() => {});
+
+    jest.advanceTimersByTime(1500);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(window.open).toHaveBeenCalledWith(VIEWER + '/open', 'OHIF Viewer', '');
+  });
+
+  it('no se engancha a un visor de otro nombre', () => {
+    client.open();
+    busReady({ viewerId: 'OHIF Viewer-2' });
+
+    expect(client.connected).toBe(false);
+  });
+
+  it('fija las peticiones a la carga del visor que contestó', () => {
+    client.open();
+    busReady();
+    bus.post.mockClear();
+
+    client.addStudies(['1.2.3']);
+
+    expect(bus.post).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'ADD_STUDIES', instance: 'carga-1' })
+    );
+  });
+
+  it('un segundo visor con el mismo nombre no le quita el lugar al primero', () => {
+    client.open();
+    busReady();
+    busReady({ instance: 'carga-2' });
+
+    expect(client.instance).toBe('carga-1');
+  });
+
+  it('si el mismo visor se recarga solo, sigue con la carga nueva', () => {
+    client.open();
+    busReady();
+    // El anuncio espontáneo del arranque no trae requestId.
+    busReady({ instance: 'carga-2', requestId: undefined });
+
+    expect(client.instance).toBe('carga-2');
+  });
+
+  it('con force y sin ventana a mano le pide al visor que se recargue', () => {
+    client.open();
+    busReady();
+    bus.post.mockClear();
+
+    client.open(VIEWER + '/open?token=sesion', { force: true }).catch(() => {});
+
+    expect(window.open).not.toHaveBeenCalled();
+    expect(bus.post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'RELOAD_SESSION',
+        payload: { url: VIEWER + '/open?token=sesion' },
+      })
+    );
   });
 });

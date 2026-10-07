@@ -56,6 +56,7 @@ describe('ExternalControlChannel', () => {
       allowedOrigins: [ALLOWED],
       handlers: { [Actions.ADD_STUDIES]: handler },
       targetWindow: window,
+      createBus: null,
       logger: silent,
     });
     channel.start();
@@ -371,6 +372,117 @@ describe('ExternalControlChannel', () => {
       await settle();
 
       expect(vivo.postMessage).toHaveBeenCalled();
+    });
+  });
+
+  describe('bus entre pestañas', () => {
+    /** Stands in for a BroadcastChannel: records posts, replays deliveries. */
+    function fakeBus() {
+      const listeners: Array<(event: MessageEvent) => void> = [];
+      return {
+        posted: [] as Array<Record<string, unknown>>,
+        postMessage(message: Record<string, unknown>) {
+          this.posted.push(message);
+        },
+        addEventListener: (_: string, listener: (event: MessageEvent) => void) =>
+          listeners.push(listener),
+        removeEventListener: (_: string, listener: (event: MessageEvent) => void) =>
+          listeners.splice(listeners.indexOf(listener), 1),
+        close: jest.fn(),
+        deliver: (data: unknown) => listeners.forEach(l => l({ data } as MessageEvent)),
+      };
+    }
+
+    let bus: ReturnType<typeof fakeBus>;
+    let viaBus: ExternalControlChannel;
+    const win = {
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      name: 'OHIF Viewer',
+    } as unknown as Window;
+
+    beforeEach(() => {
+      bus = fakeBus();
+      viaBus = new ExternalControlChannel({
+        allowedOrigins: [ALLOWED],
+        handlers: { [Actions.ADD_STUDIES]: handler },
+        targetWindow: win,
+        createBus: () => bus,
+        logger: silent,
+      });
+      viaBus.start();
+      bus.posted.length = 0; // el READY espontáneo del arranque
+    });
+
+    afterEach(() => viaBus.stop());
+
+    const handshake = (extra: Record<string, unknown> = {}) =>
+      request({ action: Actions.HANDSHAKE, origin: ALLOWED, ...extra });
+
+    it('anuncia READY al arrancar, con su nombre y su instancia', () => {
+      const otro = fakeBus();
+      new ExternalControlChannel({
+        allowedOrigins: [ALLOWED],
+        handlers: {},
+        targetWindow: win,
+        createBus: () => otro,
+        logger: silent,
+      }).start();
+
+      expect(otro.posted[0]).toMatchObject({
+        type: 'READY',
+        viewerId: 'OHIF Viewer',
+        instance: expect.any(String),
+      });
+    });
+
+    it('contesta el handshake dirigido a su nombre', async () => {
+      bus.deliver(handshake({ target: 'OHIF Viewer' }));
+      await settle();
+
+      expect(bus.posted[0]).toMatchObject({ type: 'READY', instance: viaBus.instance });
+    });
+
+    it('calla ante un handshake dirigido a otra ventana', async () => {
+      bus.deliver(handshake({ target: 'OHIF Viewer-2' }));
+      await settle();
+
+      expect(bus.posted).toHaveLength(0);
+    });
+
+    it('ejecuta sólo lo dirigido a su instancia', async () => {
+      bus.deliver(request({ origin: ALLOWED, instance: 'otra-carga' }));
+      await settle();
+      expect(handler).not.toHaveBeenCalled();
+
+      bus.deliver(request({ origin: ALLOWED, instance: viaBus.instance }));
+      await settle();
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(bus.posted[0]).toMatchObject({ type: 'RESULT', ok: true, requestId: 'r1' });
+    });
+
+    it.each([
+      ['sin origen', undefined],
+      ['de un origen que no está en la lista', 'https://attacker.example'],
+    ])('ignora una petición %s', async (_, origin) => {
+      bus.deliver(request({ origin, instance: viaBus.instance }));
+      bus.deliver(handshake({ origin }));
+      await settle();
+
+      expect(handler).not.toHaveBeenCalled();
+      expect(bus.posted).toHaveLength(0);
+    });
+
+    it('no toma por petición la respuesta de otro visor', async () => {
+      bus.deliver({ channel: CHANNEL, version: PROTOCOL_VERSION, type: 'RESULT', origin: ALLOWED });
+      await settle();
+
+      expect(bus.posted).toHaveLength(0);
+    });
+
+    it('stop() cierra el bus', () => {
+      viaBus.stop();
+      expect(bus.close).toHaveBeenCalled();
     });
   });
 

@@ -13,9 +13,22 @@
  * La respuesta se reenvía con pipe(), sin bufferear: un estudio son cientos
  * de archivos y el visor los va pidiendo a medida que los necesita.
  *
- *   RELAY_REQUEST_TOKEN=... node toth/relay-proxy.mjs
+ * También sirve para buscar estudios (lo usa external-control/example.html):
+ * `/nodos` lista los centros conectados y `/studies?client=` sus estudios.
+ * El relay no acepta el RELAY_REQUEST_TOKEN en `/studies` — pide un JWT
+ * `scope=list` del centro —, así que ese se firma acá con MIRROR_LINK_SECRETS,
+ * igual que lo hace BioRis en getStudiesFromRelay.
+ *
+ *   RELAY_REQUEST_TOKEN=... MIRROR_LINK_SECRETS=... node toth/relay-proxy.mjs
+ *
+ * Con los secretos de producción, sin escribirlos a disco:
+ *
+ *   RELAY_REQUEST_TOKEN="$(gcloud secrets versions access latest --secret=relay-request-token)" \
+ *   MIRROR_LINK_SECRETS="$(gcloud secrets versions access latest --secret=mirror-link-secrets)" \
+ *   node toth/relay-proxy.mjs
  */
 
+import crypto from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
 
@@ -23,6 +36,28 @@ const PORT = Number(process.env.PROXY_PORT ?? 3001);
 const RELAY = new URL(process.env.RELAY_BASE ?? 'https://relay.cui.date');
 const TOKEN = process.env.RELAY_REQUEST_TOKEN ?? '';
 const ORIGIN = process.env.ALLOWED_ORIGIN ?? 'http://localhost:3000';
+// Con la que se firma el token de listado. Si hay varias (rotación), la
+// primera: el relay acepta cualquiera de ellas.
+const LINK_SECRET = (process.env.MIRROR_LINK_SECRETS ?? process.env.MIRROR_LINK_SECRET ?? '')
+  .split(',')
+  .map(secret => secret.trim())
+  .filter(Boolean)[0];
+const CLIENT_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+const b64url = data => Buffer.from(data).toString('base64url');
+
+/** JWT HS256 que verify_link_token() del relay acepta; vive 5 minutos. */
+function listToken(client) {
+  const now = Math.floor(Date.now() / 1000);
+  // Mismo orden de claims que BioRis y xrayvue: {scope, client, iat, exp}.
+  const header = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const payload = b64url(JSON.stringify({ scope: 'list', client, iat: now, exp: now + 300 }));
+  const signature = crypto
+    .createHmac('sha256', LINK_SECRET)
+    .update(`${header}.${payload}`)
+    .digest('base64url');
+  return `${header}.${payload}.${signature}`;
+}
 
 // Apunta al relay (https) o directo a un dicom-index en la LAN (http). Lo
 // segundo sirve para probar el visor sin tener el token del relay a mano.
@@ -34,6 +69,7 @@ const defaultPort = RELAY.protocol === 'http:' ? 80 : 443;
 const ALLOWED = [
   /^\/wado$/,
   /^\/studies$/,
+  /^\/nodos$/,
   /^\/intensity$/,
   /^\/study\/[^/]+$/,
   /^\/study\/[^/]+\/ohif$/,
@@ -68,14 +104,39 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  const params = new URLSearchParams(search);
+  let authorization = TOKEN && `Bearer ${TOKEN}`;
+
+  if (pathname === '/studies' && RELAY.protocol === 'https:') {
+    const client = params.get('client') ?? '';
+    if (!CLIENT_RE.test(client) || !LINK_SECRET) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          error: LINK_SECRET ? 'client inválido' : 'falta MIRROR_LINK_SECRETS para listar',
+        })
+      );
+      return;
+    }
+    authorization = `Bearer ${listToken(client)}`;
+  }
+
+  // Igual que server.mjs: las URLs de imagen del manifiesto tienen que volver
+  // a este proxy, que es el que tiene el token, no ir directo al relay.
+  const isManifest = pathname.endsWith('/ohif') || params.get('format') === 'ohif';
+  if (isManifest && !params.has('wado_base')) {
+    params.set('wado_base', `http://localhost:${PORT}`);
+  }
+  const query = params.toString();
+
   const upstream = upstreamModule.request(
     {
       hostname: RELAY.hostname,
       port: RELAY.port || defaultPort,
-      path: pathname + search,
+      path: pathname + (query ? `?${query}` : ''),
       method: req.method,
       headers: {
-        ...(TOKEN && { authorization: `Bearer ${TOKEN}` }),
+        ...(authorization && { authorization }),
         ...(req.headers['content-type'] && { 'content-type': req.headers['content-type'] }),
       },
     },

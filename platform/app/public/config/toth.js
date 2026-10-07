@@ -438,6 +438,12 @@
         // Agregar y quitar estudios no necesita eso, así que queda apagado
         // hasta que haya una razón concreta.
         allowRunCommands: false,
+        // En desarrollo los manifiestos vienen de toth/relay-proxy.mjs, en
+        // otro puerto; la extensión sólo acepta los del mismo origen salvo
+        // que se nombren. En producción salen de /api del propio visor, así
+        // que ahí la lista queda vacía.
+        allowedManifestOrigins:
+          window.location.hostname === 'localhost' ? ['http://localhost:3001'] : [],
       },
 
       // Precarga reactiva al viewport activo. El servicio ya venía en OHIF y

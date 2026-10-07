@@ -25,6 +25,14 @@
   #estado { font-weight: 600; }
   #log { background: rgba(127,127,127,.12); border-radius: 6px; padding: .75rem 1rem; font: 12.5px/1.6 ui-monospace, monospace; white-space: pre-wrap; max-height: 22rem; overflow: auto; }
   .err { color: #c0392b; }
+  select { width: 100%; padding: .4rem .55rem; font: inherit; border-radius: 4px; border: 1px solid; background: transparent; color: inherit; }
+  .nota { margin: 0 0 .5rem; font-size: .85rem; opacity: .75; }
+  .tabla { overflow: auto; max-height: 26rem; margin-top: .75rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+  th, td { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid rgba(127,127,127,.3); vertical-align: top; }
+  th { position: sticky; top: 0; background: Canvas; }
+  td.botones { white-space: nowrap; }
+  td.botones button { padding: .25rem .5rem; font-size: .8rem; }
   .ok { color: #1e8449; }
 </style>
 </head>
@@ -56,6 +64,59 @@
     <button id="cerrar" disabled>Cerrar el visor</button>
   </div>
   <p>Estado: <span id="estado">sin conectar</span></p>
+</fieldset>
+
+<fieldset id="buscador">
+  <legend>Buscar estudios</legend>
+  <p class="nota">
+    Lista los estudios de un centro por el relay y los agrega al visor. Sólo
+    funciona en desarrollo, con <code>toth/relay-proxy.mjs</code> corriendo: el
+    visor publicado no expone el listado.
+  </p>
+  <div class="row">
+    <div>
+      <label for="api">API de estudios (el proxy local)</label>
+      <input id="api" placeholder="http://localhost:3001">
+    </div>
+    <div>
+      <label for="centro">Centro</label>
+      <select id="centro"><option value="">— cargar centros —</option></select>
+    </div>
+    <div style="flex:0 0 auto">
+      <button id="cargar-centros">Cargar centros</button>
+    </div>
+  </div>
+  <div class="row">
+    <div>
+      <label for="desde">Desde</label>
+      <input id="desde" type="date">
+    </div>
+    <div>
+      <label for="hasta">Hasta</label>
+      <input id="hasta" type="date">
+    </div>
+    <div>
+      <label for="modalidad">Modalidad (CT, MR, CR…; varias con coma)</label>
+      <input id="modalidad" placeholder="CT,MR">
+    </div>
+    <div>
+      <label for="paciente">Paciente</label>
+      <input id="paciente" placeholder="apellido">
+    </div>
+    <div>
+      <label for="rut">RUT (trae todo su historial, sin fechas)</label>
+      <input id="rut" placeholder="12.345.678-9">
+    </div>
+    <div style="flex:0 0 auto">
+      <button id="buscar">Buscar</button>
+    </div>
+  </div>
+  <div class="tabla"><table id="estudios" hidden>
+    <thead><tr>
+      <th>Fecha</th><th>Paciente</th><th>RUT / ID</th><th>Mod.</th><th>Descripción</th><th>Series / imág.</th><th></th>
+    </tr></thead>
+    <tbody></tbody>
+  </table></div>
 </fieldset>
 
 <fieldset>
@@ -187,6 +248,182 @@
   };
 
   $('conectar').addEventListener('click', conectar);
+
+  // ─── Buscar estudios ────────────────────────────────────────────────
+  //
+  // El proxy local firma el token de listado del centro; esta página sólo
+  // pide y muestra. Cada estudio entra al visor con su manifiesto, que el
+  // mismo proxy sirve con las URLs de imagen apuntando a él.
+
+  var hoy = new Date();
+  var haceUnaSemana = new Date(hoy.getTime() - 7 * 864e5);
+  $('hasta').value = hoy.toISOString().slice(0, 10);
+  $('desde').value = haceUnaSemana.toISOString().slice(0, 10);
+  if (location.hostname === 'localhost') {
+    $('api').value = 'http://localhost:3001';
+  } else {
+    $('buscador').hidden = true;
+  }
+
+  function api(ruta, parametros) {
+    var base = $('api').value.trim().replace(/\/$/, '');
+    if (!base) { return Promise.reject(new Error('falta la API de estudios')); }
+    var url = new URL(base + ruta);
+    Object.keys(parametros || {}).forEach(function (clave) {
+      if (parametros[clave]) { url.searchParams.set(clave, parametros[clave]); }
+    });
+    return fetch(url).then(function (respuesta) {
+      return respuesta.text().then(function (texto) {
+        var datos;
+        try { datos = JSON.parse(texto); } catch (e) { datos = null; }
+        if (!respuesta.ok || !datos) {
+          throw new Error(ruta + ' respondió ' + respuesta.status +
+            (datos && (datos.detail || datos.error) ? ': ' + (datos.detail || datos.error) : ''));
+        }
+        return datos;
+      });
+    });
+  }
+
+  function manifiestoDe(uid) {
+    var base = $('api').value.trim().replace(/\/$/, '');
+    return base + '/study/' + encodeURIComponent(uid) + '/ohif?client=' +
+      encodeURIComponent($('centro').value);
+  }
+
+  $('cargar-centros').addEventListener('click', function () {
+    api('/nodos').then(function (datos) {
+      var lista = $('centro');
+      lista.textContent = '';
+      (datos.nodos || [])
+        .filter(function (nodo) { return nodo.tipo !== 'dicom-ia'; })
+        .forEach(function (nodo) {
+          var opcion = document.createElement('option');
+          opcion.value = nodo.client;
+          opcion.textContent = (nodo.label || nodo.client) +
+            (nodo.connected ? '' : ' (desconectado)');
+          opcion.disabled = !nodo.connected;
+          lista.appendChild(opcion);
+        });
+      var conectado = Array.prototype.find.call(lista.options, function (o) { return !o.disabled; });
+      if (conectado) { lista.value = conectado.value; }
+      log(lista.options.length + ' centros', 'ok');
+    }, function (error) { log(error.message, 'err'); });
+  });
+
+  /**
+   * Las formas en que un PACS puede tener guardado un RUT. El filtro del
+   * relay es exacto y cada centro lo guarda distinto (con puntos y guion, sólo
+   * con guion, o sin nada), así que se prueban en orden hasta que una traiga
+   * estudios.
+   */
+  function formasDelRut(texto) {
+    var limpio = texto.replace(/[^0-9kK]/g, '').toUpperCase();
+    if (limpio.length < 2) { return [texto.trim()]; }
+    var cuerpo = limpio.slice(0, -1);
+    var dv = limpio.slice(-1);
+    var conPuntos = cuerpo.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    var formas = [conPuntos + '-' + dv, cuerpo + '-' + dv, limpio, texto.trim()];
+    return formas.filter(function (forma, i) { return forma && formas.indexOf(forma) === i; });
+  }
+
+  function buscarEstudios(filtros, rutes) {
+    var parametros = {};
+    for (var clave in filtros) { parametros[clave] = filtros[clave]; }
+    if (rutes && rutes.length) { parametros.patient_id = rutes[0]; }
+    return api('/studies', parametros).then(function (datos) {
+      if (rutes && rutes.length > 1 && !(datos.studies || []).length) {
+        return buscarEstudios(filtros, rutes.slice(1));
+      }
+      if (rutes && rutes.length) { datos.rutEncontrado = rutes[0]; }
+      return datos;
+    });
+  }
+
+  $('buscar').addEventListener('click', function () {
+    if (!$('centro').value) { log('primero elige un centro', 'err'); return; }
+    var cuerpo = $('estudios').tBodies[0];
+    var rut = $('rut').value.trim();
+    var filtros = {
+      client: $('centro').value,
+      modality: $('modalidad').value.trim().toUpperCase().replace(/\s+/g, ''),
+      patient_name: $('paciente').value.trim(),
+      limit: '100',
+    };
+    // Con RUT lo que se busca es el historial del paciente: las fechas lo
+    // recortarían a la última semana.
+    if (!rut) {
+      filtros.date_from = $('desde').value;
+      filtros.date_to = $('hasta').value;
+    }
+    log('buscando en ' + $('centro').value + (rut ? ' el RUT ' + rut : '') + '…');
+    buscarEstudios(filtros, rut ? formasDelRut(rut) : null).then(function (datos) {
+      if (datos.rutEncontrado && datos.rutEncontrado !== rut && (datos.studies || []).length) {
+        log('el PACS lo tiene guardado como ' + datos.rutEncontrado);
+      }
+      var estudios = datos.studies || [];
+      cuerpo.textContent = '';
+      estudios.forEach(function (estudio) { cuerpo.appendChild(filaDe(estudio)); });
+      $('estudios').hidden = !estudios.length;
+      log(estudios.length + ' estudios' + (datos.truncated ? ' (hay más: acota el filtro)' : ''),
+        estudios.length ? 'ok' : undefined);
+    }, function (error) { log(error.message, 'err'); });
+  });
+
+  function celda(fila, texto) {
+    var td = document.createElement('td');
+    td.textContent = texto == null ? '' : String(texto);
+    fila.appendChild(td);
+    return td;
+  }
+
+  function filaDe(estudio) {
+    var fila = document.createElement('tr');
+    celda(fila, estudio.study_date);
+    celda(fila, (estudio.patient_name || '').replace(/\^+/g, ' '));
+    celda(fila, estudio.patient_id);
+    celda(fila, (estudio.modalities || []).join(', '));
+    celda(fila, estudio.study_description);
+    celda(fila, (estudio.num_series || 0) + ' / ' + (estudio.num_instances || 0));
+    var botones = celda(fila, '');
+    botones.className = 'botones';
+    [
+      ['Agregar', false],
+      ['Agregar y mostrar', true],
+    ].forEach(function (par) {
+      var boton = document.createElement('button');
+      boton.textContent = par[0];
+      boton.addEventListener('click', function () { agregarDelListado(estudio, par[1]); });
+      botones.appendChild(boton);
+    });
+    var quitar = document.createElement('button');
+    quitar.textContent = 'Quitar';
+    quitar.addEventListener('click', function () {
+      ejecutar('quitar ' + estudio.study_iuid, function () {
+        return viewer.removeStudies([estudio.study_iuid]);
+      });
+    });
+    botones.appendChild(quitar);
+    return fila;
+  }
+
+  function agregarDelListado(estudio, mostrar) {
+    var uid = estudio.study_iuid;
+    var manifiesto = manifiestoDe(uid);
+    // Deja el estudio en los campos de abajo, para seguir con Mostrar/Quitar.
+    $('estudio').value = uid;
+    $('manifiesto').value = manifiesto;
+    if (!viewer) {
+      // Sin visor todavía: se abre con este mismo estudio. Dentro del clic,
+      // que es lo único que deja abrir una ventana.
+      $('url').value = location.origin + '/viewer?url=' + encodeURIComponent(manifiesto) +
+        '&StudyInstanceUIDs=' + encodeURIComponent(uid);
+      conectar();
+    }
+    ejecutar((mostrar ? 'agregar y mostrar ' : 'agregar ') + uid, function () {
+      return viewer.addStudies([{ StudyInstanceUID: uid, url: manifiesto }], { focus: mostrar });
+    });
+  }
 
   $('cerrar').addEventListener('click', function () {
     if (viewer) { viewer.close(); }

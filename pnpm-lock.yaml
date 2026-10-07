@@ -861,6 +861,21 @@ importers:
         specifier: workspace:*
         version: link:../../platform/core
 
+  extensions/toth-propagate:
+    dependencies:
+      '@cornerstonejs/core':
+        specifier: 5.6.12
+        version: 5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0)
+      '@cornerstonejs/tools':
+        specifier: 5.6.12
+        version: 5.6.12(@cornerstonejs/core@5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0))(@kitware/vtk.js@36.4.1(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0))(@types/d3-array@3.2.1)(@types/d3-interpolate@3.0.4)(d3-array@3.2.4)(d3-interpolate@3.0.1)(gl-matrix@3.4.3)
+      '@ohif/core':
+        specifier: workspace:*
+        version: link:../../platform/core
+      '@ohif/ui-next':
+        specifier: workspace:*
+        version: link:../../platform/ui-next
+
   extensions/usAnnotation:
     dependencies:
       '@babel/runtime':

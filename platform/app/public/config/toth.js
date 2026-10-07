@@ -388,7 +388,11 @@
     return {
       name: 'config/toth.js',
       routerBasename: null,
-      extensions: ['@ohif/extension-external-control', '@ohif/extension-toth-hps'],
+      extensions: [
+        '@ohif/extension-external-control',
+        '@ohif/extension-toth-hps',
+        '@ohif/extension-toth-propagate',
+      ],
       modes: [],
       customizationService: {},
       showStudyList: false,

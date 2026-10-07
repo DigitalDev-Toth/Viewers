@@ -117,6 +117,106 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
   }
 
   /**
+   * A mode has laid out its viewports. The grid itself exists at the app level
+   * — on the bare root it answers with one empty viewport — so its presence
+   * says nothing; an active viewport does.
+   */
+  function modeMounted() {
+    return Boolean(gridState()?.activeViewportId);
+  }
+
+  /**
+   * Open on the root, with no study: nothing will ever mount a mode there, so
+   * waiting for one would only time out. A window the host opened without a
+   * study URL — or with an empty one — looks like this.
+   */
+  function isEmptyViewer() {
+    return !modeMounted() && /^\/?$/.test(window.location.pathname);
+  }
+
+  /** Resolves once the study has display sets, i.e. the mode has loaded it. */
+  function whenStudyHasDisplaySets(StudyInstanceUID: string, timeoutMs = 60000): Promise<void> {
+    if (displaySetsForStudy(StudyInstanceUID).length) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      const subscription = displaySetService.subscribe(
+        displaySetService.EVENTS.DISPLAY_SETS_ADDED,
+        () => {
+          if (displaySetsForStudy(StudyInstanceUID).length) {
+            clearTimeout(timer);
+            subscription.unsubscribe();
+            resolve();
+          }
+        }
+      );
+      const timer = setTimeout(() => {
+        subscription.unsubscribe();
+        reject(
+          new ExternalControlError(
+            ErrorCodes.NOT_FOUND,
+            `el estudio ${StudyInstanceUID} no produjo series mostrables`
+          )
+        );
+      }, timeoutMs);
+    });
+  }
+
+  /**
+   * Bring an empty viewer into the mode with this study, the same way its URL
+   * would have: the mode loads it, hangs it and builds the display sets. It
+   * goes through OHIF's own navigation, so the page — and with it the
+   * channel, the cache and the host's connection — is not reloaded.
+   */
+  async function enterModeWith({ StudyInstanceUID, url }: { StudyInstanceUID: string; url?: string }) {
+    const query = new URLSearchParams();
+    if (url) {
+      query.set('url', assertManifestAllowed(url, allowedManifestOrigins));
+    }
+    query.set('StudyInstanceUIDs', StudyInstanceUID);
+    commandsManager.runCommand('navigateHistory', {
+      to: `/viewer?${query.toString()}`,
+      options: { replace: true },
+    });
+    await whenSessionReady();
+    await whenStudyHasDisplaySets(StudyInstanceUID);
+  }
+
+  /** Resolves once no viewport references any of `uids` any more. */
+  function whenGridReleases(uids: Set<string>, timeoutMs = 3000): Promise<void> {
+    const released = () => {
+      let holding = false;
+      gridState()?.viewports?.forEach(viewport => {
+        if ((viewport.displaySetInstanceUIDs ?? []).some(uid => uids.has(uid))) {
+          holding = true;
+        }
+      });
+      return !holding;
+    };
+    if (released()) {
+      return Promise.resolve();
+    }
+    return new Promise(resolve => {
+      const subscription = viewportGridService.subscribe(
+        viewportGridService.EVENTS.GRID_STATE_CHANGED,
+        () => {
+          if (released()) {
+            finish();
+          }
+        }
+      );
+      // Not an error if it never confirms: the removal still has to happen,
+      // and the worst case is the prefetcher hiccup this wait exists to avoid.
+      const timer = setTimeout(finish, timeoutMs);
+      function finish() {
+        clearTimeout(timer);
+        subscription.unsubscribe();
+        resolve();
+      }
+    });
+  }
+
+  /**
    * Wait until a mode is actually mounted.
    *
    * The channel starts listening at `preRegistration`, long before any route
@@ -128,7 +228,7 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
    * later.
    */
   function whenSessionReady(timeoutMs = 30000): Promise<void> {
-    if (gridState()) {
+    if (modeMounted()) {
       return Promise.resolve();
     }
     return new Promise((resolve, reject) => {
@@ -151,7 +251,7 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
         subscriptions.forEach(subscription => subscription.unsubscribe());
       }
       function check() {
-        if (gridState()) {
+        if (modeMounted()) {
           stop();
           resolve();
         }
@@ -174,7 +274,11 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
       }
       // The display sets only get built by the mode's own subscription, so
       // loading metadata before a mode is mounted would leave the study in the
-      // store and invisible everywhere else.
+      // store and invisible everywhere else. An empty viewer will never mount
+      // one on its own: the first study is what takes it into the mode.
+      if (isEmptyViewer()) {
+        await enterModeWith(entries[0]);
+      }
       await whenSessionReady();
 
       const dataSource = activeDataSource();
@@ -233,6 +337,12 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
      * forward. This is the "the radiologist is now reading this one" action.
      */
     focusStudy: async ({ StudyInstanceUID, displaySetInstanceUID, viewportId }) => {
+      if (isEmptyViewer()) {
+        throw new ExternalControlError(
+          ErrorCodes.NOT_FOUND,
+          'el visor está vacío: agrega un estudio primero'
+        );
+      }
       await whenSessionReady();
       const { activeViewportId, isHangingProtocolLayout } = viewportGridService.getState();
       const targetViewportId = viewportId ?? activeViewportId;
@@ -315,6 +425,12 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
           `numRows y numCols tienen que ser enteros entre 1 y ${MAX_GRID_SIDE}`
         );
       }
+      if (isEmptyViewer()) {
+        throw new ExternalControlError(
+          ErrorCodes.NOT_FOUND,
+          'el visor está vacío: agrega un estudio primero'
+        );
+      }
       await whenSessionReady();
 
       const describe = () => {
@@ -390,16 +506,59 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
         }
         const uids = new Set(displaySets.map(ds => ds.displaySetInstanceUID));
 
+        // A viewport left showing this study gets another study's series
+        // rather than going black: the radiologist just finished one report,
+        // and the next study already loaded is what they are moving on to.
+        const replacements = displaySetService
+          .getActiveDisplaySets()
+          .filter(
+            ds =>
+              !uids.has(ds.displaySetInstanceUID) &&
+              !ds.unsupported &&
+              !ds.excludeFromThumbnailBrowser
+          )
+          .sort(customizationService.getCustomization('sortingCriteria'));
+        const onScreen = new Set<string>();
+        gridState()?.viewports?.forEach(viewport =>
+          (viewport.displaySetInstanceUIDs ?? []).forEach(uid => onScreen.add(uid))
+        );
+        const nextReplacement = () => {
+          const pick =
+            replacements.find(ds => !onScreen.has(ds.displaySetInstanceUID)) ?? replacements[0];
+          if (pick) {
+            onScreen.add(pick.displaySetInstanceUID);
+          }
+          return pick;
+        };
+
         const viewportsToUpdate = [];
         gridState()?.viewports?.forEach((viewport, viewportId) => {
           const current = viewport.displaySetInstanceUIDs ?? [];
           const remaining = current.filter(uid => !uids.has(uid));
-          if (remaining.length !== current.length) {
-            viewportsToUpdate.push({ viewportId, displaySetInstanceUIDs: remaining });
+          if (remaining.length === current.length) {
+            return;
           }
+          const replacement = remaining.length ? null : nextReplacement();
+          viewportsToUpdate.push({
+            viewportId,
+            displaySetInstanceUIDs: replacement ? [replacement.displaySetInstanceUID] : remaining,
+          });
         });
+
+        if (hangingProtocolService.getState()?.activeStudyUID === StudyInstanceUID) {
+          const other = replacements[0]?.StudyInstanceUID;
+          if (other) {
+            hangingProtocolService.setActiveStudyUID(other);
+          }
+        }
+
         if (viewportsToUpdate.length) {
           viewportGridService.setDisplaySetsForViewports(viewportsToUpdate);
+          // The grid applies that a beat later. Deleting the display sets
+          // before it does leaves a viewport pointing at UIDs that no longer
+          // exist, and the study prefetcher — which follows the active
+          // viewport — throws reading the loading state of one of them.
+          await whenGridReleases(uids);
         }
 
         purgedImages += await purgeDisplaySetImages(displaySets);
@@ -442,7 +601,7 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
         studies.set(displaySet.StudyInstanceUID, entry);
       }
       return {
-        ready: Boolean(grid),
+        ready: modeMounted(),
         activeViewportId: activeViewportId ?? null,
         activeStudyUID: hangingProtocolService.getState()?.activeStudyUID ?? null,
         viewportCount: viewports?.size ?? 0,

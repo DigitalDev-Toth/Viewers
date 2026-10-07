@@ -85,6 +85,50 @@ describe('ExternalControlChannel', () => {
       expect(wildcard.isEnabled).toBe(false);
     });
 
+    describe('patrón de subdominio', () => {
+      const conPatron = (allowedOrigins: string[]) =>
+        new ExternalControlChannel({
+          allowedOrigins,
+          handlers: {},
+          targetWindow: window,
+          logger: silent,
+        });
+
+      it('acepta un subdominio de un nivel', () => {
+        const patron = conPatron(['https://*.cui.date']);
+
+        expect(patron.isEnabled).toBe(true);
+        expect(patron.isAllowedOrigin('https://norteimagen.cui.date')).toBe(true);
+      });
+
+      it.each([
+        ['el dominio pelado', 'https://cui.date'],
+        ['dos niveles de subdominio', 'https://a.b.cui.date'],
+        ['otro esquema', 'http://norteimagen.cui.date'],
+        ['otro puerto', 'https://norteimagen.cui.date:8443'],
+        ['un dominio que sólo termina igual', 'https://evilcui.date'],
+        ['un dominio que lo usa de prefijo', 'https://norteimagen.cui.date.attacker.example'],
+      ])('rechaza %s', (_, origin) => {
+        expect(conPatron(['https://*.cui.date']).isAllowedOrigin(origin)).toBe(false);
+      });
+
+      it.each([
+        ['un TLD entero', 'https://*.date'],
+        ['un comodín en medio', 'https://norte*.cui.date'],
+        ['un comodín sin esquema', '*.cui.date'],
+        ['un comodín con ruta', 'https://*.cui.date/'],
+      ])('no acepta como patrón %s', (_, pattern) => {
+        expect(conPatron([pattern]).isEnabled).toBe(false);
+      });
+
+      it('respeta el puerto del patrón', () => {
+        const patron = conPatron(['http://*.cui.test:8083']);
+
+        expect(patron.isAllowedOrigin('http://norteimagen.cui.test:8083')).toBe(true);
+        expect(patron.isAllowedOrigin('http://norteimagen.cui.test:8084')).toBe(false);
+      });
+    });
+
     it('sin orígenes configurados no instala el listener', async () => {
       channel.stop(); // el canal del beforeEach comparte esta misma ventana
       const inert = new ExternalControlChannel({

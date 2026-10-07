@@ -220,10 +220,24 @@
    * That throws away the session, so it is only for when the host knows the
    * running one cannot serve what it is about to ask — a viewer opened earlier
    * with narrower credentials, typically.
+   *
+   * `{reattach: true}` tries the window by name first even when this page has
+   * no record of opening it — for when the host knows a window by that name
+   * is out there because another page of it opened one (with a plain
+   * `window.open(url, name)`, say). Without it, that window would be
+   * navigated and its session lost.
+   *
+   * `{window: handle}` uses a window the host already opened instead of
+   * calling `window.open` here. The point is the user gesture: a host that
+   * has to ask its backend before it knows what to send can open (or find)
+   * the named window synchronously in the click, and hand it over once the
+   * answer arrives — by then the gesture is long gone and a `window.open` of
+   * our own could be blocked.
    */
   ExternalControlClient.prototype.open = function (url, options) {
     var openUrl = url || this.settings.openUrl;
     var force = Boolean(options && options.force);
+    var reattach = Boolean(options && options.reattach);
     var alive = this.viewerWindow && !this.viewerWindow.closed;
 
     if (alive && !force) {
@@ -250,8 +264,20 @@
 
     // Reattach blind when there is reason to believe a viewer is out there;
     // otherwise go straight to the URL and skip the handshake timeout.
-    var target = !force && this.mayBeOpen() ? '' : openUrl;
-    this.viewerWindow = window.open(target, this.settings.windowName, this.settings.windowFeatures);
+    var target = !force && (reattach || this.mayBeOpen()) ? '' : openUrl;
+    var handed = options && options.window;
+    if (handed && !handed.closed) {
+      this.viewerWindow = handed;
+      if (target !== '') {
+        try {
+          handed.location.href = target;
+        } catch (e) {
+          return Promise.reject(withCode(e, 'VIEWER_UNREACHABLE'));
+        }
+      }
+    } else {
+      this.viewerWindow = window.open(target, this.settings.windowName, this.settings.windowFeatures);
+    }
 
     if (!this.viewerWindow) {
       var blocked = new Error('el navegador bloqueó la ventana del visor');
@@ -406,6 +432,11 @@
 
   ExternalControlClient.prototype.focus = function (target) {
     return this.send('FOCUS', target || {});
+  };
+
+  /** Rows × columns; the viewer fills new viewports with series not on screen. */
+  ExternalControlClient.prototype.setLayout = function (numRows, numCols) {
+    return this.send('SET_LAYOUT', { numRows: numRows, numCols: numCols });
   };
 
   ExternalControlClient.prototype.getSessionState = function () {

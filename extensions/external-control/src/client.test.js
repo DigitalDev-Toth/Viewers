@@ -212,6 +212,39 @@ describe('OHIFExternalControl client', () => {
       expect(window.open).toHaveBeenCalledWith('', 'ohif-viewer', '');
     });
 
+    it('con reattach reengancha por nombre aunque esta página no la haya abierto', () => {
+      window.open = jest.fn(() => viewerWindow);
+
+      client.open(undefined, { reattach: true });
+
+      // La abrió otra página del RIS: no hay rastro aquí, pero sí una ventana.
+      expect(window.open).toHaveBeenCalledWith('', 'ohif-viewer', '');
+    });
+
+    it('con una ventana entregada no llama a window.open: el gesto ya pasó', () => {
+      window.open = jest.fn();
+      viewerWindow.location = { href: 'about:blank' };
+
+      client.open(VIEWER + '/open', { window: viewerWindow });
+
+      expect(window.open).not.toHaveBeenCalled();
+      expect(viewerWindow.location.href).toBe(VIEWER + '/open');
+    });
+
+    it('una ventana entregada con reattach se saluda, no se navega', () => {
+      window.open = jest.fn();
+      viewerWindow.location = { href: '' };
+
+      client.open(VIEWER + '/open', { window: viewerWindow, reattach: true }).catch(() => {});
+
+      expect(window.open).not.toHaveBeenCalled();
+      expect(viewerWindow.location.href).toBe('');
+      expect(viewerWindow.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'HANDSHAKE' }),
+        VIEWER
+      );
+    });
+
     it('si nadie contesta el handshake, recién ahí navega la ventana', () => {
       window.localStorage.setItem('ohif-external-control:ohif-viewer', String(Date.now()));
       viewerWindow.location = { href: '' };

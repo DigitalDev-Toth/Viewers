@@ -21,8 +21,23 @@ import {
 
 type Handler = (payload: Record<string, unknown>) => Promise<unknown> | unknown;
 
+/**
+ * `https://*.example.org` — one subdomain label, never more, never none.
+ *
+ * The suffix needs at least two labels so `https://*.org` cannot slip through,
+ * and the scheme and port are fixed, so the pattern widens the host and
+ * nothing else.
+ */
+const SUBDOMAIN_PATTERN = /^(https?):\/\/\*((?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?){2,})(:\d+)?$/;
+const LABEL = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+
+type SubdomainRule = { prefix: string; suffix: string };
+
 type Options = {
-  /** Exact origins, e.g. `https://ris.example.org`. `*` is refused. */
+  /**
+   * Exact origins, e.g. `https://ris.example.org`, or a single-label subdomain
+   * pattern, `https://*.example.org`. A bare `*` is refused.
+   */
   allowedOrigins?: string[];
   handlers: Record<string, Handler>;
   /** Injected for tests; defaults to the real window. */
@@ -32,6 +47,7 @@ type Options = {
 
 export default class ExternalControlChannel {
   private readonly allowedOrigins: string[];
+  private readonly subdomainRules: SubdomainRule[] = [];
   private readonly handlers: Record<string, Handler>;
   private readonly window: Window;
   private readonly logger: Pick<Console, 'warn' | 'error'>;
@@ -49,7 +65,33 @@ export default class ExternalControlChannel {
         this.logger.error(`[external-control] origen ignorado: ${String(origin)}`);
         return false;
       }
+      if (origin.includes('*')) {
+        // One RIS serving many centres, each on its own subdomain, is the
+        // case for a pattern. Anything looser than one label under a fixed
+        // domain is refused rather than guessed at.
+        const match = SUBDOMAIN_PATTERN.exec(origin.toLowerCase());
+        if (!match) {
+          this.logger.error(`[external-control] patrón de origen ignorado: ${origin}`);
+        } else {
+          const [, scheme, domain, port = ''] = match;
+          this.subdomainRules.push({ prefix: `${scheme}://`, suffix: `${domain}${port}` });
+        }
+        return false;
+      }
       return true;
+    });
+  }
+
+  isAllowedOrigin(origin: string): boolean {
+    if (this.allowedOrigins.includes(origin)) {
+      return true;
+    }
+    return this.subdomainRules.some(({ prefix, suffix }) => {
+      if (!origin.startsWith(prefix) || !origin.endsWith(suffix)) {
+        return false;
+      }
+      const label = origin.slice(prefix.length, origin.length - suffix.length);
+      return LABEL.test(label);
     });
   }
 
@@ -58,7 +100,7 @@ export default class ExternalControlChannel {
   }
 
   get isEnabled(): boolean {
-    return this.allowedOrigins.length > 0;
+    return this.allowedOrigins.length > 0 || this.subdomainRules.length > 0;
   }
 
   start(): void {
@@ -89,6 +131,11 @@ export default class ExternalControlChannel {
    * Addressing each origin explicitly rather than `'*'` means the browser drops
    * the message unless the opener really is one of them, so a viewer opened
    * from an unexpected page announces nothing.
+   *
+   * Subdomain patterns cannot be addressed this way — the opener's origin is
+   * not readable across origins — so those hosts are not announced to. They
+   * do not need it: the client keeps sending HANDSHAKE until it is answered,
+   * and that answer goes to the exact origin that asked.
    */
   private announceReady(): void {
     const win = this.window as Window & { opener?: Window; parent?: Window };
@@ -127,7 +174,7 @@ export default class ExternalControlChannel {
   }
 
   private async handleMessage(event: MessageEvent): Promise<void> {
-    if (!this.allowedOrigins.includes(event.origin)) {
+    if (!this.isAllowedOrigin(event.origin)) {
       return;
     }
     const data = event.data as Record<string, unknown> | null;

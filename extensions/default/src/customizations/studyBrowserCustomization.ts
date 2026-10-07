@@ -47,6 +47,9 @@ export default {
     },
   ],
   'studyBrowser.studyMode': 'all',
+  // Puts the patient on screen on top and other patients' studies below, as a
+  // queue; see Panels/StudyBrowser/groupStudiesByPatient.
+  'studyBrowser.groupByPatient': false,
   'studyBrowser.thumbnailDoubleClickCallback': {
     callbacks: [
       ({ activeViewportId, servicesManager, commandsManager, isHangingProtocolLayout }) =>

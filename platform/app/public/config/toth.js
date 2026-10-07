@@ -394,7 +394,13 @@
         '@ohif/extension-toth-propagate',
       ],
       modes: [],
-      customizationService: {},
+      customizationService: {
+        mode: {
+          // El RIS le va empujando al visor los estudios que vienen: el panel
+          // muestra arriba el paciente en pantalla y abajo, aparte, la cola.
+          '*': { 'studyBrowser.groupByPatient': { $set: true } },
+        },
+      },
       showStudyList: false,
 
       // El cartel de «for investigational use only» aparece en cada apertura

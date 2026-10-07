@@ -32,7 +32,11 @@ const StudyItem = ({
       onKeyDown={() => {}}
       role="button"
       tabIndex={0}
-      defaultValue={isActive ? 'study-item' : undefined}
+      // Controlled: the panel owns which studies are open (a click already goes
+      // through it), so a study it opens or folds programmatically — the one
+      // just put on screen, say — follows. As `defaultValue` it only counted
+      // at mount and later changes were ignored.
+      value={isActive ? 'study-item' : ''}
     >
       <AccordionItem value="study-item">
         <AccordionTrigger className={classnames('hover:bg-accent bg-popover group w-full rounded')}>

@@ -9,6 +9,7 @@ import MoreDropdownMenu from '../../Components/MoreDropdownMenu';
 import { CallbackCustomization } from 'platform/core/src/types';
 import { type TabsProps } from '@ohif/core/src/utils/createStudyBrowserTabs';
 import { thumbnailNoImageModalities } from '@ohif/core/src/utils/thumbnailNoImageModalities';
+import { groupStudiesByPatient } from './groupStudiesByPatient';
 
 const { sortStudyInstances, formatDate, createStudyBrowserTabs } = utils;
 
@@ -33,6 +34,8 @@ function PanelStudyBrowser({
   const internalImageViewer = useImageViewer();
   const StudyInstanceUIDs = internalImageViewer.StudyInstanceUIDs;
   const fetchedStudiesRef = useRef(new Set());
+  // Studies that have had display sets in this session; see DISPLAY_SETS_REMOVED.
+  const loadedStudiesRef = useRef(new Set());
 
   const [{ activeViewportId, viewports, isHangingProtocolLayout }] = useViewportGrid();
   const [activeTabName, setActiveTabName] = useState(studyMode);
@@ -139,6 +142,8 @@ function PanelStudyBrowser({
           description: qidoStudy.StudyDescription,
           modalities: qidoStudy.ModalitiesInStudy,
           numInstances: Number(qidoStudy.NumInstances),
+          patientId: qidoStudy.PatientID,
+          patientName: qidoStudy.PatientName,
         };
       });
 
@@ -161,17 +166,53 @@ function PanelStudyBrowser({
     // and drops every display set), so the display sets are the signal. Without
     // this, such a study loads and hangs correctly but never appears as a block
     // in the panel. `fetchedStudiesRef` keeps this to one query per study.
-    const { unsubscribe } = displaySetService.subscribe(
+    // Display sets created before this panel mounted never reach the listener.
+    displaySetService
+      .getActiveDisplaySets()
+      .forEach(displaySet => loadedStudiesRef.current.add(displaySet.StudyInstanceUID));
+
+    const added = displaySetService.subscribe(
       displaySetService.EVENTS.DISPLAY_SETS_ADDED,
       ({ displaySetsAdded }) => {
         const newStudyUIDs = new Set(
           (displaySetsAdded ?? []).map(displaySet => displaySet.StudyInstanceUID).filter(Boolean)
         );
-        newStudyUIDs.forEach(uid => fetchStudiesForPatient(uid));
+        newStudyUIDs.forEach(uid => {
+          loadedStudiesRef.current.add(uid);
+          fetchStudiesForPatient(uid);
+        });
       }
     );
 
-    return () => unsubscribe();
+    // And the reverse: a study whose display sets were all removed from the
+    // session (dropped from outside once reported) leaves the panel. Only one
+    // that had display sets — a prior the data source listed but nobody loaded
+    // never had any, and is meant to stay there to be clicked. Forgetting it in
+    // `fetchedStudiesRef` lets it come back if it is added again.
+    const removed = displaySetService.subscribe(
+      displaySetService.EVENTS.DISPLAY_SETS_REMOVED,
+      () => {
+        const stillLoaded = new Set(
+          displaySetService.getActiveDisplaySets().map(displaySet => displaySet.StudyInstanceUID)
+        );
+        const gone = [...loadedStudiesRef.current].filter(uid => !stillLoaded.has(uid));
+        if (!gone.length) {
+          return;
+        }
+        gone.forEach(uid => {
+          loadedStudiesRef.current.delete(uid);
+          fetchedStudiesRef.current.delete(uid);
+        });
+        setStudyDisplayList(prevArray =>
+          prevArray.filter(study => !gone.includes(study.studyInstanceUid))
+        );
+      }
+    );
+
+    return () => {
+      added.unsubscribe();
+      removed.unsubscribe();
+    };
   }, [StudyInstanceUIDs, dataSource, getStudiesForPatientByMRN, navigate, displaySetService]);
 
   // ~~ Initial Thumbnails
@@ -358,7 +399,47 @@ function PanelStudyBrowser({
     customMapDisplaySets,
   ]);
 
-  const tabs = createStudyBrowserTabs(StudyInstanceUIDs, studyDisplayList, displaySets);
+  const studyTabs = createStudyBrowserTabs(StudyInstanceUIDs, studyDisplayList, displaySets);
+  const activeDisplaySetUID = viewports.get(activeViewportId)?.displaySetInstanceUIDs?.[0];
+  const activeStudyInstanceUID = activeDisplaySetUID
+    ? displaySetService.getDisplaySetByUID(activeDisplaySetUID)?.StudyInstanceUID
+    : undefined;
+  const groupByPatient = Boolean(
+    customizationService.getCustomization('studyBrowser.groupByPatient')
+  );
+
+  // With the panel grouped by patient, follow the study on screen: whatever
+  // put it there (the worklist from outside, a thumbnail, a hanging protocol),
+  // its block opens, and the one it replaced folds up if it belonged to
+  // another patient and has just dropped into the queue. Studies of the same
+  // patient that were open stay open — those are the ones being compared.
+  const previousActiveStudyRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const previous = previousActiveStudyRef.current;
+    previousActiveStudyRef.current = activeStudyInstanceUID;
+    if (!groupByPatient || !activeStudyInstanceUID || previous === activeStudyInstanceUID) {
+      return;
+    }
+    const patientOf = uid =>
+      studyDisplayList.find(study => study.studyInstanceUid === uid)?.patientId;
+    const activePatient = patientOf(activeStudyInstanceUID);
+    const previousWasOtherPatient =
+      previous && (!activePatient || patientOf(previous) !== activePatient);
+
+    setExpandedStudyInstanceUIDs(expanded => {
+      const next = expanded.filter(uid => !(previousWasOtherPatient && uid === previous));
+      return next.includes(activeStudyInstanceUID) ? next : [...next, activeStudyInstanceUID];
+    });
+  }, [activeStudyInstanceUID, groupByPatient, studyDisplayList]);
+
+  const tabs = groupByPatient
+    ? groupStudiesByPatient(studyTabs, {
+        activeStudyInstanceUID,
+        // Re-read on every render: the display set events that change it are
+        // the same ones that re-render this panel.
+        arrivalOrder: [...loadedStudiesRef.current] as string[],
+      })
+    : studyTabs;
 
   // TODO: Should not fire this on "close"
   function _handleStudyClick(StudyInstanceUID) {

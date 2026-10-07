@@ -24,43 +24,64 @@ const StudyBrowser = ({
   ThumbnailMenuItems,
   StudyMenuItems,
 }: withAppTypes) => {
-  const getTabContent = () => {
-    const tabData = tabs.find(tab => tab.name === activeTabName);
-    const viewPreset = viewPresets
-      ? viewPresets.filter(preset => preset.selected)[0]?.id
-      : 'thumbnails';
-    return tabData?.studies?.map(
-      ({ studyInstanceUid, date, description, numInstances, modalities, displaySets }) => {
-        const isExpanded = expandedStudyInstanceUIDs.includes(studyInstanceUid);
-        return (
-          <React.Fragment key={studyInstanceUid}>
-            <StudyItem
-              date={date}
-              description={description}
-              numInstances={numInstances}
-              isExpanded={isExpanded}
-              displaySets={displaySets}
-              modalities={modalities}
-              isActive={isExpanded}
-              onClick={() => onClickStudy(studyInstanceUid)}
-              onClickThumbnail={onClickThumbnail}
-              onDoubleClickThumbnail={onDoubleClickThumbnail}
-              onClickUntrack={onClickUntrack}
-              activeDisplaySetInstanceUIDs={activeDisplaySetInstanceUIDs}
-              data-cy="thumbnail-list"
-              viewPreset={viewPreset}
-              ThumbnailMenuItems={ThumbnailMenuItems}
-              StudyMenuItems={StudyMenuItems}
-              StudyInstanceUID={studyInstanceUid}
-            />
-          </React.Fragment>
-        );
-      }
+  const viewPreset = viewPresets
+    ? viewPresets.filter(preset => preset.selected)[0]?.id
+    : 'thumbnails';
+  const studies = tabs.find(tab => tab.name === activeTabName)?.studies ?? [];
+
+  // Studies may come grouped: the patient being read, and a queue of other
+  // patients' studies pushed in ahead of time (see `studyBrowser.groupByPatient`).
+  // The queue is docked at the bottom of the panel in a colour of its own, so
+  // it reads as "what comes next" and never gets mixed up with the current
+  // patient. Ungrouped studies — the default — render exactly as before.
+  const current = studies.filter(study => study.group !== 'queue');
+  const queue = studies.filter(study => study.group === 'queue');
+  const isGrouped = studies.some(study => study.group);
+
+  const renderStudy = ({
+    studyInstanceUid,
+    date,
+    description,
+    numInstances,
+    modalities,
+    displaySets,
+  }) => {
+    const isExpanded = expandedStudyInstanceUIDs.includes(studyInstanceUid);
+    return (
+      <StudyItem
+        key={studyInstanceUid}
+        date={date}
+        description={description}
+        numInstances={numInstances}
+        isExpanded={isExpanded}
+        displaySets={displaySets}
+        modalities={modalities}
+        isActive={isExpanded}
+        onClick={() => onClickStudy(studyInstanceUid)}
+        onClickThumbnail={onClickThumbnail}
+        onDoubleClickThumbnail={onDoubleClickThumbnail}
+        onClickUntrack={onClickUntrack}
+        activeDisplaySetInstanceUIDs={activeDisplaySetInstanceUIDs}
+        data-cy="thumbnail-list"
+        viewPreset={viewPreset}
+        ThumbnailMenuItems={ThumbnailMenuItems}
+        StudyMenuItems={StudyMenuItems}
+        StudyInstanceUID={studyInstanceUid}
+      />
     );
   };
 
-  return (
-    <ScrollArea>
+  const groupHeader = (label, className, group) => (
+    <div
+      className={`px-2 pt-1 text-[11px] font-semibold uppercase tracking-wide ${className}`}
+      data-cy={`studyBrowser-group-${group}`}
+    >
+      {label}
+    </div>
+  );
+
+  const mainList = (
+    <ScrollArea className={queue.length ? 'min-h-0 flex-1' : undefined}>
       <div
         className="bg-background flex flex-1 flex-col gap-[4px]"
         data-cy={'studyBrowser-panel'}
@@ -78,10 +99,37 @@ const StudyBrowser = ({
               </>
             </div>
           )}
-          {getTabContent()}
+          {isGrouped &&
+            current.length > 0 &&
+            groupHeader('Paciente actual', 'text-muted-foreground', 'patient')}
+          {current.map(renderStudy)}
         </div>
       </div>
     </ScrollArea>
+  );
+
+  if (!queue.length) {
+    return mainList;
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {mainList}
+      <div
+        className={[
+          'flex max-h-[45%] shrink-0 flex-col gap-[4px] overflow-y-auto',
+          'border-t-2 border-[#E0A33A] bg-[#1F1808] pb-1',
+          // StudyItem paints its own header; tint it from here rather than
+          // teach it about queues.
+          '[&_.bg-popover]:bg-[#3D2F10] [&_.bg-popover:hover]:bg-[#4E3C14]',
+          '[&_.text-foreground]:text-[#F5C76A] [&_.text-muted-foreground]:text-[#D9B373]',
+        ].join(' ')}
+        data-cy="studyBrowser-queue"
+      >
+        {groupHeader(`En cola (${queue.length})`, 'pt-1.5 text-[#E0A33A]', 'queue')}
+        {queue.map(renderStudy)}
+      </div>
+    </div>
   );
 };
 

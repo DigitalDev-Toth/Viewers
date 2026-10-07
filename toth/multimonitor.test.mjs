@@ -188,7 +188,7 @@ test('dos pantallas: el visor se queda con la que no es la del RIS', async () =>
 
   assert.deepEqual(
     entrada(config).screens.map(s => ({ id: s.id, screen: s.screen })),
-    [{ id: 'ohif-diagnostico', screen: 1 }]
+    [{ id: 'OHIF Viewer', screen: 1 }]
   );
   assert.equal(query.get('multimonitor'), 'auto');
   assert.equal(query.get('screenNumber'), '0');
@@ -200,8 +200,8 @@ test('dos pantallas: el visor se queda con la que no es la del RIS', async () =>
 test('el nombre de la primera ventana es el que BioRis usa para reengancharla', async () => {
   const { config } = await arrancar({ screens: [RIS, VERTICAL, VERTICAL_2] });
 
-  assert.equal(entrada(config).screens[0].id, 'ohif-diagnostico');
-  assert.equal(entrada(config).screens[1].id, 'ohif-diagnostico-2');
+  assert.equal(entrada(config).screens[0].id, 'OHIF Viewer');
+  assert.equal(entrada(config).screens[1].id, 'OHIF Viewer-2');
 });
 
 test('el monitor principal no fuerza colgado: lo elige OHIF', async () => {
@@ -399,7 +399,7 @@ test('la configuración del visor no cambia por todo esto', async () => {
 
   assert.equal(config.defaultDataSourceName, 'dicomjson');
   assert.equal([...config.extensions].includes('@ohif/extension-toth-hps'), true);
-  assert.equal(config.externalControl.allowedOrigins.includes('https://php8.cui.date'), true);
+  assert.equal(config.externalControl.allowedOrigins.includes('https://*.cui.date'), true);
   assert.equal(config.externalControl.allowRunCommands, false);
   assert.equal(config.studyPrefetcher.enabled, true);
   assert.equal(config.investigationalUseDialog.option, 'never');

@@ -156,10 +156,12 @@ El rodeo es poner primera la etapa que sirve para el caso común.
 
 Dos detalles que no son opcionales:
 
-- **El id de la primera pantalla es `ohif-diagnostico`.** El servicio renombra
+- **El id de la primera pantalla es `OHIF Viewer`.** El servicio renombra
   cada ventana con el id de su pantalla, y ese es el nombre por el que BioRis
-  reengancha la ventana abierta (`windowName` en `studies.js`). Cambiarlo hace
-  que el RIS abra una ventana nueva en cada clic.
+  reengancha la ventana abierta (`windowName` en `studies.js` y `OHIF_VENTANA`
+  en `traza2/function.js`), igual que la página de controles
+  (`external-control/example.html`). Cambiarlo en un solo lado hace que el RIS
+  abra una ventana nueva en cada clic.
 - **La ventana tiene que ser una ventana, no una pestaña.** `window.moveTo` no
   mueve pestañas. Hoy `traza2/function.js` abre con `window.open(url, '_blank')`
   y `external-control/client.js` con `windowFeatures: ''`: las dos formas dan

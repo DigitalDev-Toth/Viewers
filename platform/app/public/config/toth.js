@@ -62,11 +62,11 @@
     excludePrimary: true,
 
     // BioRis reengancha la ventana del visor por su nombre (`windowName:
-    // 'ohif-diagnostico'` en studies.js). MultiMonitorService renombra cada
+    // 'OHIF Viewer'` en studies.js). MultiMonitorService renombra cada
     // ventana con el id de su pantalla, así que el id de la primera tiene que
     // ser exactamente ese: si no, el RIS deja de encontrarla y abre una
     // ventana nueva en cada clic.
-    firstWindowName: 'ohif-diagnostico',
+    firstWindowName: 'OHIF Viewer',
 
     // Abrir las pantallas de diagnóstico que falten al entrar al modo.
     launchAll: true,
@@ -406,20 +406,29 @@
       // por postMessage, sin recargarlo — recargar cuesta las mediciones, el
       // layout y la caché de imágenes.
       //
-      // La lista es exacta y sin comodines: cualquier página de estos
-      // orígenes que consiga un handle a la ventana del visor puede manejarlo.
+      // Cualquier página de estos orígenes que consiga un handle a la ventana
+      // del visor puede manejarlo, así que la lista es lo más angosta que
+      // permite el despliegue.
       externalControl: {
         allowedOrigins: [
-          'https://php8.cui.date',
-          // El propio origen del visor, para que su página de demostración
-          // (/external-control/example.html) pueda manejarlo. Ahí sólo se
-          // sirve nuestro bundle estático — no hay subidas ni contenido de
-          // terceros — así que no agrega superficie real; si algún día ese
-          // origen sirviera algo ajeno, esta línea es la primera que sacar.
-          'https://ohif.cui.date',
+          // Cada centro tiene su BioRis en `<centro>.cui.date`, y los de QA en
+          // `<centro>.qa.cui.date`. El patrón acepta exactamente un nivel de
+          // subdominio, con este esquema y sin puerto (ver
+          // ExternalControlChannel). Cubre también el propio visor
+          // (ohif.cui.date), que es lo que deja a su página de demostración
+          // (/external-control/example.html) manejarlo.
+          //
+          // El costo: un subdominio de cui.date que algún día sirviera
+          // contenido ajeno podría manejar el visor. Si eso pasa, este patrón
+          // es lo primero que hay que reemplazar por la lista de centros.
+          'https://*.cui.date',
+          'https://*.qa.cui.date',
           // Desarrollo: BioRis servido en local contra este visor.
           'http://localhost:8080',
           'http://localhost:3000',
+          // BioRis local de un centro, que entra por `<centro>.localhost`
+          // para que la cookie de sesión no se mezcle entre centros.
+          'http://norteimagen.localhost:8083',
         ],
         // `RUN_COMMANDS` deja al host correr cualquier comando del visor.
         // Agregar y quitar estudios no necesita eso, así que queda apagado

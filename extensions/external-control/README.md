@@ -40,7 +40,11 @@ window.config = {
 };
 ```
 
-`allowedOrigins` entries are exact origins. `'*'` is refused, not honoured.
+`allowedOrigins` entries are exact origins, or a single-label subdomain pattern
+such as `https://*.ris.example.org` for a RIS that serves each site on its own
+subdomain. The pattern fixes the scheme and port and matches exactly one label:
+not the bare domain, not `a.b.ris.example.org`. A bare `'*'` — or anything
+looser, like `https://*.org` — is refused, not honoured.
 
 ## Host side
 
@@ -104,6 +108,7 @@ Viewer → host:
 | `ADD_STUDIES` | `{studies, focus?}` | loads studies into the session |
 | `REMOVE_STUDIES` | `{studies}` | empties their viewports, purges their images |
 | `FOCUS` | `{StudyInstanceUID}` or `{displaySetInstanceUID}` | hangs it and raises the window |
+| `SET_LAYOUT` | `{numRows, numCols}` (1–4 each) | splits the grid; new viewports get series not yet shown |
 | `GET_SESSION_STATE` | — | what the session currently holds |
 | `RUN_COMMANDS` | `{commands}` | any command; only with `allowRunCommands` |
 

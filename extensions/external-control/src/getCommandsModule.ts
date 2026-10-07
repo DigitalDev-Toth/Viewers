@@ -10,6 +10,9 @@ import { DicomMetadataStore } from '@ohif/core';
 import { ErrorCodes, ExternalControlError } from './protocol';
 import purgeDisplaySetImages from './purgeDisplaySetImages';
 
+/** A bound, not a taste: past 4 per side each viewport is too small to read. */
+const MAX_GRID_SIDE = 4;
+
 /** Accepts `['1.2.3']`, `[{StudyInstanceUID}]`, or a single one of either. */
 function normalizeStudies(studies: unknown): Array<{ StudyInstanceUID: string; url?: string }> {
   const list = Array.isArray(studies) ? studies : [studies];
@@ -274,6 +277,65 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
     },
 
     /**
+     * Split the grid into rows × columns — the "show me this study in two"
+     * button of a worklist.
+     *
+     * It goes through OHIF's own `setViewportGridLayout`, the same command the
+     * toolbar's layout selector runs, so viewports already on screen keep their
+     * position and the new ones are filled with series not yet displayed.
+     *
+     * That command applies the layout on a timer and returns nothing, so the
+     * answer waits for LAYOUT_CHANGED: otherwise the host would hear "ok" for a
+     * layout the protocol's `onLayoutChange` callback is free to veto.
+     */
+    setViewerLayout: async ({ numRows, numCols }) => {
+      const rows = Number(numRows);
+      const cols = Number(numCols);
+      const valid = (n: number) => Number.isInteger(n) && n >= 1 && n <= MAX_GRID_SIDE;
+      if (!valid(rows) || !valid(cols)) {
+        throw new ExternalControlError(
+          ErrorCodes.BAD_REQUEST,
+          `numRows y numCols tienen que ser enteros entre 1 y ${MAX_GRID_SIDE}`
+        );
+      }
+      await whenSessionReady();
+
+      const describe = () => {
+        const { layout, viewports } = viewportGridService.getState();
+        return { numRows: layout.numRows, numCols: layout.numCols, viewportCount: viewports.size };
+      };
+      const { layout } = viewportGridService.getState();
+      if (layout.numRows === rows && layout.numCols === cols) {
+        return describe();
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const subscription = viewportGridService.subscribe(
+          viewportGridService.EVENTS.LAYOUT_CHANGED,
+          ({ numRows: changedRows, numCols: changedCols }) => {
+            if (changedRows === rows && changedCols === cols) {
+              clearTimeout(timer);
+              subscription.unsubscribe();
+              resolve();
+            }
+          }
+        );
+        const timer = setTimeout(() => {
+          subscription.unsubscribe();
+          reject(
+            new ExternalControlError(
+              ErrorCodes.INTERNAL,
+              `el visor no aplicó el layout ${rows}x${cols}`
+            )
+          );
+        }, 5000);
+        commandsManager.runCommand('setViewportGridLayout', { numRows: rows, numCols: cols });
+      });
+
+      return describe();
+    },
+
+    /**
      * Drop studies the radiologist is done with, freeing their pixels.
      *
      * Viewports are emptied before the display sets go, otherwise the grid is
@@ -361,6 +423,7 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
       addStudies: { commandFn: actions.addStudies },
       removeStudies: { commandFn: actions.removeStudies },
       focusStudy: { commandFn: actions.focusStudy },
+      setViewerLayout: { commandFn: actions.setViewerLayout },
       getSessionState: { commandFn: actions.getSessionState },
     },
     defaultContext: 'DEFAULT',

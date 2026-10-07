@@ -27,6 +27,8 @@ export const Actions = {
   REMOVE_STUDIES: 'REMOVE_STUDIES',
   /** Bring the window forward and hang a study or display set. */
   FOCUS: 'FOCUS',
+  /** Split the grid into rows × columns, filling new viewports with series. */
+  SET_LAYOUT: 'SET_LAYOUT',
   /** Read back what the session holds, so the host can reconcile. */
   GET_SESSION_STATE: 'GET_SESSION_STATE',
   /** Escape hatch onto the commands manager; off unless configured on. */

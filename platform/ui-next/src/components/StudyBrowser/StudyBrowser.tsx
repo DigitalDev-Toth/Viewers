@@ -8,6 +8,9 @@ import { ScrollArea } from '../ScrollArea';
 
 const noop = () => {};
 
+/** `APELLIDO^NOMBRE` → `APELLIDO NOMBRE`. */
+const formatPatientName = (name?: string) => (name ?? '').replace(/\^+/g, ' ').trim();
+
 const StudyBrowser = ({
   tabs,
   activeTabName,
@@ -101,7 +104,13 @@ const StudyBrowser = ({
           )}
           {isGrouped &&
             current.length > 0 &&
-            groupHeader('Paciente actual', 'text-muted-foreground', 'patient')}
+            groupHeader(
+              ['Paciente actual', formatPatientName(current[0].patientName), current[0].patientId]
+                .filter(Boolean)
+                .join(' · '),
+              'text-muted-foreground',
+              'patient'
+            )}
           {current.map(renderStudy)}
         </div>
       </div>

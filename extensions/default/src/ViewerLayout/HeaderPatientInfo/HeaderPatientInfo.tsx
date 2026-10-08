@@ -29,6 +29,15 @@ function HeaderPatientInfo({ servicesManager, appConfig }: withAppTypes) {
     }
   }, [isMixedPatients, expanded]);
 
+  // And back: once there is a single patient again — or the header follows the
+  // patient on screen — a deployment that asked for the info visible gets it
+  // visible, instead of staying folded from a moment of mixed patients.
+  useEffect(() => {
+    if (!isMixedPatients && initialExpandedState) {
+      setExpanded(true);
+    }
+  }, [isMixedPatients, initialExpandedState]);
+
   const handleOnClick = () => {
     if (!isMixedPatients && appConfig.showPatientInfo !== PatientInfoVisibility.VISIBLE_READONLY) {
       setExpanded(!expanded);

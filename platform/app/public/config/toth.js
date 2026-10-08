@@ -402,6 +402,10 @@
         },
       },
       showStudyList: false,
+      // El nombre del paciente en pantalla, siempre a la vista arriba a la
+      // derecha: con la cola de los que vienen en el mismo visor, es la forma
+      // de no informar sobre el paciente equivocado.
+      showPatientInfo: 'visible',
 
       // El cartel de «for investigational use only» aparece en cada apertura
       // del visor. Acá el visor es una herramienta de trabajo en un puesto de

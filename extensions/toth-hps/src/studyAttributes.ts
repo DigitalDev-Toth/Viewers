@@ -30,21 +30,25 @@ export function registerStudyAttributes(hangingProtocolService) {
     mammoView
   );
 
-  const activeStudy = (): Study | undefined => {
-    const { activeStudyUID } = hangingProtocolService.getState() ?? {};
+  // Quien evalúa las reglas puede decir qué estudio tomar como el que se
+  // cuelga (`activeStudyUID` en las opciones), para preguntar por uno sin
+  // tener que colgarlo antes; si no lo dice, es el activo del servicio.
+  const activeStudy = (options?: { activeStudyUID?: string }): Study | undefined => {
+    const activeStudyUID =
+      options?.activeStudyUID ?? hangingProtocolService.getState()?.activeStudyUID;
     return hangingProtocolService.studies?.find(study => study.StudyInstanceUID === activeStudyUID);
   };
 
   hangingProtocolService.addCustomAttribute(
     'isActiveStudy',
     'Es el estudio que se está colgando',
-    (study: Study) => study?.StudyInstanceUID === activeStudy()?.StudyInstanceUID
+    (study: Study, options) => study?.StudyInstanceUID === activeStudy(options)?.StudyInstanceUID
   );
 
   hangingProtocolService.addCustomAttribute(
     'isPriorOfActive',
     'Es otro estudio del mismo paciente que el que se está colgando',
-    (study: Study) => isPriorOf(study, activeStudy())
+    (study: Study, options) => isPriorOf(study, activeStudy(options))
   );
 }
 

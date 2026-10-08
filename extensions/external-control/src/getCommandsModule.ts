@@ -156,30 +156,64 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
   }
 
   /**
-   * Whether a stage would place at least one of this study's series: some
-   * viewport whose selector's series rules a display set of the study passes.
+   * Whether a stage can be hung for this study: every viewport has the study
+   * it is meant for, and at least one gets an image.
    *
-   * Only the series rules are tried. The study rules decide current versus
-   * prior, and they depend on which study is being hung — not something to
-   * change just to ask. A stage that only fills with priors may therefore be
-   * offered without them; SET_HANGING_PROTOCOL still checks what it hung.
+   * Each viewport's selector is tried as the protocol engine would, with this
+   * study taken as the one being hung (`activeStudyUID` in the options, for
+   * attributes that care): its study rules pick the candidate studies — this
+   * one, or a prior — and its series rules a display set among theirs.
+   *
+   * A viewport whose series find nothing is fine: a one-sided mammogram
+   * leaves the other side empty, and that is the honest picture. A viewport
+   * whose *study* finds nothing is not — a "current vs prior" layout with no
+   * prior in the session is half a layout — so that stage is not offered.
    */
-  function stageCanBeFilled(protocol, stage, displaySets): boolean {
+  function stageCanBeFilled(protocol, stage, StudyInstanceUID: string): boolean {
     const selectors = protocol.displaySetSelectors ?? {};
-    return (stage.viewports ?? []).some(viewport =>
-      (viewport.displaySets ?? []).some(({ id }) => {
-        const rules = selectors[id]?.seriesMatchingRules;
-        if (!rules?.length) {
-          return false;
-        }
-        return displaySets.some(displaySet => {
-          const match = hangingProtocolService.runMatchingRules(displaySet, rules, {
-            displaySets,
-          });
-          return !match.requiredFailed && match.score > 0;
-        });
-      })
-    );
+    const studies = hangingProtocolService.studies ?? [];
+    const allDisplaySets = displaySetService.getActiveDisplaySets();
+    const displaySetsOf = uid =>
+      allDisplaySets.filter(ds => ds.StudyInstanceUID === uid && !ds.unsupported);
+    const passes = (metadata, rules, options) => {
+      const match = hangingProtocolService.runMatchingRules(metadata, rules, {
+        ...options,
+        activeStudyUID: StudyInstanceUID,
+      });
+      return !match.requiredFailed && (match.score > 0 || rules.some(rule => rule.required));
+    };
+
+    let filled = 0;
+    for (const viewport of stage.viewports ?? []) {
+      const selector = (viewport.displaySets ?? []).map(({ id }) => selectors[id]).find(Boolean);
+      if (!selector?.seriesMatchingRules?.length) {
+        continue;
+      }
+      const candidates = selector.studyMatchingRules?.length
+        ? studies.filter((study, studyInstanceUIDsIndex) =>
+            passes(study, selector.studyMatchingRules, {
+              studies,
+              displaySets: displaySetsOf(study.StudyInstanceUID),
+              allDisplaySets,
+              studyInstanceUIDsIndex,
+            })
+          )
+        : [
+            studies.find(study => study.StudyInstanceUID === StudyInstanceUID) ??
+              DicomMetadataStore.getStudy(StudyInstanceUID),
+          ].filter(Boolean);
+      if (!candidates.length) {
+        return false;
+      }
+      const placesAnImage = candidates.some(study => {
+        const displaySets = displaySetsOf(study.StudyInstanceUID);
+        return displaySets.some(ds => passes(ds, selector.seriesMatchingRules, { displaySets }));
+      });
+      if (placesAnImage) {
+        filled++;
+      }
+    }
+    return filled > 0;
   }
 
   /** Viewports the hanging protocol just filled with something. */
@@ -680,7 +714,7 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
         // than not offering it: only stages that place some of this study's
         // images, and only protocols with at least one such stage.
         const stages = (protocol.stages ?? []).filter(stage =>
-          stageCanBeFilled(protocol, stage, displaySets)
+          stageCanBeFilled(protocol, stage, StudyInstanceUID)
         );
         if (stages.length) {
           matched.push({ protocol, score, stages });
@@ -761,10 +795,10 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
         }
         // Before touching anything: a stage that cannot place any of this
         // study's images would only leave the viewports black.
-        if (!stageCanBeFilled(protocol, stage, displaySets)) {
+        if (!stageCanBeFilled(protocol, stage, StudyInstanceUID)) {
           throw new ExternalControlError(
             ErrorCodes.NOT_FOUND,
-            `la etapa ${stage.id ?? stage.name} de ${protocolId} no ubica ninguna imagen de este estudio`
+            `la etapa ${stage.id ?? stage.name} de ${protocolId} no se puede llenar con este estudio (le faltan imágenes o la previa)`
           );
         }
         previous = hangingProtocolService.getState();

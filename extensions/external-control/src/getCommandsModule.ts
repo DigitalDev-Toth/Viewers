@@ -35,6 +35,32 @@ export function mainModality(series: Array<{ Modality?: string }>): string | nul
   return best;
 }
 
+/**
+ * Attributes that say what a study *is*. A protocol whose matching rules look
+ * at none of them (it only asks for "some images", or for a prior) fits any
+ * study — a grid, a scale — and is reported as generic so a host can keep it
+ * out of a per-modality menu.
+ */
+const CONTENT_ATTRIBUTES = new Set([
+  'ModalitiesInStudy',
+  'Modality',
+  'StudyDescription',
+  'SeriesDescription',
+  'BodyPartExamined',
+]);
+
+export function isGenericProtocol(protocol: {
+  generic?: boolean;
+  protocolMatchingRules?: Array<{ attribute?: string }>;
+}): boolean {
+  if (typeof protocol.generic === 'boolean') {
+    return protocol.generic;
+  }
+  return !(protocol.protocolMatchingRules ?? []).some(rule =>
+    CONTENT_ATTRIBUTES.has(rule.attribute)
+  );
+}
+
 /** A bound, not a taste: past 4 per side each viewport is too small to read. */
 const MAX_GRID_SIDE = 4;
 
@@ -129,6 +155,45 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
     }
   }
 
+  /**
+   * Whether a stage would place at least one of this study's series: some
+   * viewport whose selector's series rules a display set of the study passes.
+   *
+   * Only the series rules are tried. The study rules decide current versus
+   * prior, and they depend on which study is being hung — not something to
+   * change just to ask. A stage that only fills with priors may therefore be
+   * offered without them; SET_HANGING_PROTOCOL still checks what it hung.
+   */
+  function stageCanBeFilled(protocol, stage, displaySets): boolean {
+    const selectors = protocol.displaySetSelectors ?? {};
+    return (stage.viewports ?? []).some(viewport =>
+      (viewport.displaySets ?? []).some(({ id }) => {
+        const rules = selectors[id]?.seriesMatchingRules;
+        if (!rules?.length) {
+          return false;
+        }
+        return displaySets.some(displaySet => {
+          const match = hangingProtocolService.runMatchingRules(displaySet, rules, {
+            displaySets,
+          });
+          return !match.requiredFailed && match.score > 0;
+        });
+      })
+    );
+  }
+
+  /** Viewports the hanging protocol just filled with something. */
+  function filledViewports(): number {
+    const { viewportMatchDetails } = hangingProtocolService.getMatchDetails();
+    let filled = 0;
+    viewportMatchDetails?.forEach(detail => {
+      if (detail?.displaySetsInfo?.some(info => info?.displaySetInstanceUID)) {
+        filled++;
+      }
+    });
+    return filled;
+  }
+
   /** Every image of a study, series in the order the panel shows them. */
   function imageIdsForStudy(StudyInstanceUID: string): string[] {
     const dataSource = activeDataSource();
@@ -211,7 +276,13 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
    * goes through OHIF's own navigation, so the page — and with it the
    * channel, the cache and the host's connection — is not reloaded.
    */
-  async function enterModeWith({ StudyInstanceUID, url }: { StudyInstanceUID: string; url?: string }) {
+  async function enterModeWith({
+    StudyInstanceUID,
+    url,
+  }: {
+    StudyInstanceUID: string;
+    url?: string;
+  }) {
     const query = new URLSearchParams();
     if (url) {
       query.set('url', assertManifestAllowed(url, allowedManifestOrigins));
@@ -585,7 +656,8 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
             : [...new Set(series.map(serie => serie.Modality).filter(Boolean))],
       };
 
-      const protocols = [];
+      const matched = [];
+      const replaced = new Set<string>();
       for (const protocolId of hangingProtocolService.protocols.keys()) {
         const protocol = findProtocol(protocolId);
         const rules = protocol?.protocolMatchingRules;
@@ -596,26 +668,41 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
           studies: [matchStudy],
           displaySets,
         });
-        if (score > 0) {
-          protocols.push({
-            id: protocol.id,
-            name: protocol.name ?? protocol.id,
-            score,
-            // A stage without id cannot be asked for by SET_HANGING_PROTOCOL
-            // — OHIF looks stages up by id only — so it comes back as null.
-            stages: (protocol.stages ?? []).map(stage => ({
-              id: stage.id ?? null,
-              name: stage.name ?? stage.id ?? null,
-            })),
-          });
+        if (score <= 0) {
+          continue;
+        }
+        // A protocol can declare it stands in for another (a site's own take
+        // on an upstream one). Whether or not it can be filled for this study,
+        // the one it replaces is left out: it is the same idea under another
+        // name, and the reason it was replaced usually applies too.
+        (protocol.replaces ?? []).forEach(id => replaced.add(id));
+        // Offering a layout that would leave every viewport black is worse
+        // than not offering it: only stages that place some of this study's
+        // images, and only protocols with at least one such stage.
+        const stages = (protocol.stages ?? []).filter(stage =>
+          stageCanBeFilled(protocol, stage, displaySets)
+        );
+        if (stages.length) {
+          matched.push({ protocol, score, stages });
         }
       }
-      protocols.sort((a, b) => b.score - a.score);
 
-      return {
-        modality: mainModality(series),
-        protocols: protocols.map(({ score, ...protocol }) => protocol),
-      };
+      const protocols = matched
+        .filter(({ protocol }) => !replaced.has(protocol.id))
+        .sort((a, b) => b.score - a.score)
+        .map(({ protocol, stages }) => ({
+          id: protocol.id,
+          name: protocol.name ?? protocol.id,
+          generic: isGenericProtocol(protocol),
+          // A stage without id cannot be asked for by SET_HANGING_PROTOCOL
+          // — OHIF looks stages up by id only — so it comes back as null.
+          stages: stages.map(stage => ({
+            id: stage.id ?? null,
+            name: stage.name ?? stage.id ?? null,
+          })),
+        }));
+
+      return { modality: mainModality(series), protocols };
     },
 
     /**
@@ -648,6 +735,7 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
         );
       }
 
+      let previous;
       if (!protocolId) {
         // What OHIF would have chosen for this study on its own.
         hangingProtocolService.run({
@@ -657,14 +745,29 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
       } else {
         const protocol = findProtocol(protocolId);
         if (!protocol) {
-          throw new ExternalControlError(ErrorCodes.NOT_FOUND, `no existe el protocolo ${protocolId}`);
+          throw new ExternalControlError(
+            ErrorCodes.NOT_FOUND,
+            `no existe el protocolo ${protocolId}`
+          );
         }
-        if (stageId && !(protocol.stages ?? []).some(stage => stage.id === stageId)) {
+        const stage = stageId
+          ? (protocol.stages ?? []).find(candidate => candidate.id === stageId)
+          : protocol.stages?.[0];
+        if (!stage) {
           throw new ExternalControlError(
             ErrorCodes.NOT_FOUND,
             `el protocolo ${protocolId} no tiene la etapa ${stageId}`
           );
         }
+        // Before touching anything: a stage that cannot place any of this
+        // study's images would only leave the viewports black.
+        if (!stageCanBeFilled(protocol, stage, displaySets)) {
+          throw new ExternalControlError(
+            ErrorCodes.NOT_FOUND,
+            `la etapa ${stage.id ?? stage.name} de ${protocolId} no ubica ninguna imagen de este estudio`
+          );
+        }
+        previous = hangingProtocolService.getState();
         // A fresh run on this study, so the protocol's selectors pick among
         // its series — and not whatever the previous one left hung.
         hangingProtocolService.run(
@@ -681,6 +784,20 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
       // the study lacks is "disabled" and silently not applied — so the only
       // honest answer comes from reading back what got hung.
       const requestedId = protocolId && findProtocol(protocolId)?.id;
+      // And after: if it still hung nothing, put back what was there.
+      if (requestedId && applied === requestedId && !filledViewports()) {
+        if (previous?.protocolId) {
+          hangingProtocolService.run(
+            { activeStudy: study, displaySets: displaySetService.getActiveDisplaySets() },
+            previous.protocolId,
+            { stageIndex: previous.stageIndex }
+          );
+        }
+        throw new ExternalControlError(
+          ErrorCodes.NOT_FOUND,
+          `${protocolId} no ubicó ninguna imagen de este estudio; se dejó el colgado anterior`
+        );
+      }
       if (requestedId && (applied !== requestedId || (stageId && appliedStageId !== stageId))) {
         throw new ExternalControlError(
           ErrorCodes.NOT_FOUND,

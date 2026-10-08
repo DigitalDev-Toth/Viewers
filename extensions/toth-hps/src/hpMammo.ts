@@ -70,6 +70,9 @@ const hpMammo = {
   ...hpMammography,
   id: '@toth/mammo',
   name: 'Mamografía',
+  // Mismo propósito y mismas reglas que el de OHIF: al ofrecer formatos, éste
+  // va en su lugar y no los dos, con nombres distintos para lo mismo.
+  replaces: ['@ohif/hpMammo'],
   displaySetSelectors,
   // Por encima de @ohif/hpMammo, que tiene las mismas reglas: si los dos
   // calzan, manda éste.

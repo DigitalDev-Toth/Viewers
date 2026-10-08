@@ -136,8 +136,8 @@ Viewer → host:
 | `REMOVE_STUDIES` | `{studies}` | empties their viewports, purges their images |
 | `FOCUS` | `{StudyInstanceUID}` or `{displaySetInstanceUID}` | hangs it and raises the window |
 | `SET_LAYOUT` | `{numRows, numCols}` (1–4 each) | splits the grid; new viewports get series not yet shown |
-| `GET_HANGING_PROTOCOLS` | `{StudyInstanceUID}` | `{modality, protocols: [{id, name, stages: [{id, name}]}]}` — every registered protocol whose rules match that study, best first; `modality` is the study's main one, without SR/PR/KO |
-| `SET_HANGING_PROTOCOL` | `{StudyInstanceUID, protocolId?, stageId?}` | hangs the study that way; without `protocolId`, the way OHIF picks on its own. `NOT_FOUND` if the protocol, the stage, or the stage's required series are not there |
+| `GET_HANGING_PROTOCOLS` | `{StudyInstanceUID}` | `{modality, protocols: [{id, name, generic, stages: [{id, name}]}]}` — registered protocols whose rules match that study, best first, with only the stages that would place some of its images. `generic` marks the ones that fit any study (grids, scales); a protocol listed in another's `replaces` is left out. `modality` is the study's main one, without SR/PR/KO |
+| `SET_HANGING_PROTOCOL` | `{StudyInstanceUID, protocolId?, stageId?}` | hangs the study that way; without `protocolId`, the way OHIF picks on its own. `NOT_FOUND` — and the previous layout left in place — if the protocol or stage does not exist or would place none of the study's images |
 | `RELOAD_SESSION` | `{url}` (only this viewer's `/open`) | reloads with new credentials, for hosts with no window handle |
 | `GET_SESSION_STATE` | — | what the session currently holds |
 | `RUN_COMMANDS` | `{commands}` | any command; only with `allowRunCommands` |

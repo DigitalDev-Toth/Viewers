@@ -55,6 +55,10 @@ describe('@toth/mammo', () => {
     );
   });
 
+  it('se ofrece en lugar de @ohif/hpMammo, no junto a él', () => {
+    expect(hpMammo.replaces).toEqual(['@ohif/hpMammo']);
+  });
+
   it('calza por encima de @ohif/hpMammo, con las mismas reglas', () => {
     const peso = hpMammo.protocolMatchingRules.find(rule => rule.id === 'Mammography').weight;
     expect(peso).toBeGreaterThan(150);

@@ -395,10 +395,14 @@
   ExternalControlClient.prototype.open = function (url, options) {
     var self = this;
     var force = Boolean(options && options.force);
-    if (this.viewerWindow && this.viewerWindow.closed) {
-      // The radiologist closed the viewer. Whatever we were connected to is
-      // gone: without this, open() would resolve on the stale connection and
-      // the window it then finds by name is a blank one it never navigates.
+    var closed = this.viewerWindow && this.viewerWindow.closed;
+    // Connected through a window, but holding none: nothing left to talk to.
+    var orphaned = this.connected && this.via === 'window' && !this.viewerWindow;
+    if (closed || orphaned) {
+      // The radiologist closed the viewer, or the reference to it was lost.
+      // Whatever we were connected to is gone: without this, open() would
+      // resolve on the stale connection and the window it then finds by name
+      // is a blank one it never navigates.
       this.forgetViewer();
     }
     var handle = this.viewerWindow && !this.viewerWindow.closed;

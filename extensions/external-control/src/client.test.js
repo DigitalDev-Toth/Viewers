@@ -343,6 +343,18 @@ describe('OHIFExternalControl client', () => {
       expect(window.open).toHaveBeenCalledWith(VIEWER + '/', 'ohif-viewer', '');
     });
 
+    it('conectado por ventana pero sin ventana a mano, open() reconecta', () => {
+      ready(viewerWindow);
+      client.viewerWindow = null;
+      const nueva = fakeViewerWindow();
+      window.open = jest.fn(() => nueva);
+
+      client.open().catch(() => {});
+
+      expect(client.connected).toBe(false);
+      expect(window.open).toHaveBeenCalledWith(VIEWER + '/', 'ohif-viewer', '');
+    });
+
     it('emite `ready` una sola vez aunque el visor lo repita', () => {
       const escucha = jest.fn();
       client.on('ready', escucha);

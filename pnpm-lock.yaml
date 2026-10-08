@@ -863,6 +863,9 @@ importers:
       '@ohif/core':
         specifier: workspace:*
         version: link:../../platform/core
+      '@ohif/extension-default':
+        specifier: workspace:*
+        version: link:../default
 
   extensions/toth-propagate:
     dependencies:

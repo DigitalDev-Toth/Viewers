@@ -11,17 +11,28 @@
 
 import { id } from './id.js';
 import hpSecondScreen from './hpSecondScreen';
+import hpMammo from './hpMammo';
+import { registerStudyAttributes } from './studyAttributes';
 
 const tothHangingProtocolsExtension = {
   id,
+
+  preRegistration({ servicesManager }) {
+    // Los usa @toth/mammo para elegir actual y previa.
+    registerStudyAttributes(servicesManager.services.hangingProtocolService);
+  },
 
   getHangingProtocolModule: () => [
     {
       name: hpSecondScreen.id,
       protocol: hpSecondScreen,
     },
+    {
+      name: hpMammo.id,
+      protocol: hpMammo,
+    },
   ],
 };
 
 export default tothHangingProtocolsExtension;
-export { hpSecondScreen };
+export { hpSecondScreen, hpMammo };

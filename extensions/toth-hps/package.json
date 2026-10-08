@@ -14,7 +14,8 @@
     "README.md"
   ],
   "peerDependencies": {
-    "@ohif/core": "workspace:*"
+    "@ohif/core": "workspace:*",
+    "@ohif/extension-default": "workspace:*"
   },
   "scripts": {
     "test:unit": "jest --watchAll",

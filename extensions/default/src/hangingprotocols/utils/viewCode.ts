@@ -1,5 +1,7 @@
 export default displaySet => {
-  const ViewCodeSequence = displaySet?.images[0]?.ViewCodeSequence[0];
+  // Optional all the way down: plenty of mammography in the wild has no
+  // ViewCodeSequence, and throwing here takes the whole protocol down with it.
+  const ViewCodeSequence = displaySet?.images?.[0]?.ViewCodeSequence?.[0];
   if (!ViewCodeSequence) {
     return undefined;
   }

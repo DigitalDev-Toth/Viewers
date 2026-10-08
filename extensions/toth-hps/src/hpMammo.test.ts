@@ -55,6 +55,16 @@ describe('@toth/mammo', () => {
     );
   });
 
+  it('cada cuadro de cada etapa tiene su propio id de vista', () => {
+    const ids = hpMammo.stages.flatMap(stage =>
+      stage.viewports.map(viewport => viewport.viewportOptions.id)
+    );
+    expect(ids).toContain('cc-1x2-RCC');
+    expect(ids).toContain('cc-mlo-LMLO');
+    expect(ids).toContain('cc-compare-RCCPrior');
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it('se ofrece en lugar de @ohif/hpMammo, no junto a él', () => {
     expect(hpMammo.replaces).toEqual(['@ohif/hpMammo']);
   });

@@ -66,6 +66,27 @@ const oneByTwo = {
   properties: { rows: 1, columns: 2 },
 };
 
+/**
+ * Un id de vista propio para cada cuadro de cada etapa.
+ *
+ * OHIF guarda la cámara (zoom, pan, área de despliegue) de cada serie y la
+ * restaura cuando esa serie vuelve a pantalla; la llave es la serie y, si el
+ * cuadro tiene, su `viewportOptions.id`. Sin id, la RCC que ya estaba en un
+ * 1x1 volvía con esa cámara al colgarse en la etapa, cortada y corrida,
+ * mientras las otras tres sí tomaban el encuadre de mamografía. Con id, cada
+ * cuadro de cada etapa tiene su propia memoria.
+ */
+const conIdDeVista = stage => ({
+  ...stage,
+  viewports: stage.viewports.map(viewport => ({
+    ...viewport,
+    viewportOptions: {
+      ...viewport.viewportOptions,
+      id: `${stage.id}-${viewport.displaySets[0].id}`,
+    },
+  })),
+});
+
 const hpMammo = {
   ...hpMammography,
   id: '@toth/mammo',
@@ -94,7 +115,7 @@ const hpMammo = {
       viewportStructure: oneByTwo,
       viewports: [rmlo, lmlo],
     },
-  ],
+  ].map(conIdDeVista),
 };
 
 export default hpMammo;

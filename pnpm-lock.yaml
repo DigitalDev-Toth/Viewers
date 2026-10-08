@@ -730,6 +730,9 @@ importers:
       '@ohif/core':
         specifier: workspace:*
         version: link:../../platform/core
+      '@ohif/extension-cornerstone':
+        specifier: workspace:*
+        version: link:../cornerstone
     devDependencies:
       cross-env:
         specifier: 7.0.3

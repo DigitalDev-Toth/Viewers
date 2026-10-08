@@ -216,6 +216,66 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
     return filled > 0;
   }
 
+  /**
+   * Forget the camera OHIF remembers for the viewports of a stage, so hanging
+   * it puts each one in the stage's own framing (displayArea, alignment,
+   * flip) — as if the viewer had opened on it — rather than in whatever zoom
+   * and pan that viewport had the last time this stage was up.
+   *
+   * Remembered cameras are keyed by the series and the viewport's
+   * `viewportOptions.id`, so this reaches only stages that give their
+   * viewports an id; without one, the key is the series alone and is shared
+   * with every other place that series was shown.
+   */
+  async function forgetStagePresentations(stage) {
+    const ids = (stage.viewports ?? [])
+      .map(viewport => viewport.viewportOptions?.id)
+      .filter(Boolean);
+    if (!ids.length) {
+      return;
+    }
+    try {
+      const { usePositionPresentationStore } = await import('@ohif/extension-cornerstone');
+      usePositionPresentationStore.setState(state => ({
+        positionPresentationStore: Object.fromEntries(
+          Object.entries(state.positionPresentationStore ?? {}).filter(
+            ([key]) => !key.split('&').some(part => ids.includes(part))
+          )
+        ),
+      }));
+    } catch (error) {
+      // Without the cornerstone extension nothing is remembered to forget.
+      console.warn('[external-control] no se pudieron olvidar las cámaras de la etapa:', error);
+    }
+  }
+
+  /**
+   * Empty every viewport before hanging a new layout.
+   *
+   * A viewport that keeps its id and its series across the change is not
+   * reloaded by cornerstone, so the new stage's viewport options — the
+   * mammography displayArea, alignment, flip — never reach it, and it keeps
+   * the camera it had (the single RCC of a 1x1, cut and shifted inside its
+   * half of a 2x2). Emptied first, every viewport loads as it would on a
+   * viewer opened on that stage.
+   */
+  async function clearViewports() {
+    const onScreen = new Set<string>();
+    const emptied = [];
+    gridState()?.viewports?.forEach((viewport, viewportId) => {
+      const uids = viewport.displaySetInstanceUIDs ?? [];
+      if (uids.length) {
+        uids.forEach(uid => onScreen.add(uid));
+        emptied.push({ viewportId, displaySetInstanceUIDs: [] });
+      }
+    });
+    if (!emptied.length) {
+      return;
+    }
+    viewportGridService.setDisplaySetsForViewports(emptied);
+    await whenGridReleases(onScreen);
+  }
+
   /** Viewports the hanging protocol just filled with something. */
   function filledViewports(): number {
     const { viewportMatchDetails } = hangingProtocolService.getMatchDetails();
@@ -771,7 +831,9 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
 
       let previous;
       if (!protocolId) {
-        // What OHIF would have chosen for this study on its own.
+        // What OHIF would have chosen for this study on its own — framed as
+        // it would be on opening, not as the previous layout left it.
+        await clearViewports();
         hangingProtocolService.run({
           activeStudy: study,
           displaySets: displaySetService.getActiveDisplaySets(),
@@ -802,6 +864,8 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
           );
         }
         previous = hangingProtocolService.getState();
+        await forgetStagePresentations(stage);
+        await clearViewports();
         // A fresh run on this study, so the protocol's selectors pick among
         // its series — and not whatever the previous one left hung.
         hangingProtocolService.run(

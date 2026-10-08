@@ -395,6 +395,12 @@
   ExternalControlClient.prototype.open = function (url, options) {
     var self = this;
     var force = Boolean(options && options.force);
+    if (this.viewerWindow && this.viewerWindow.closed) {
+      // The radiologist closed the viewer. Whatever we were connected to is
+      // gone: without this, open() would resolve on the stale connection and
+      // the window it then finds by name is a blank one it never navigates.
+      this.forgetViewer();
+    }
     var handle = this.viewerWindow && !this.viewerWindow.closed;
 
     if (this.connected && this.via === 'bus' && !handle) {
@@ -679,6 +685,22 @@
     return this.send('SET_LAYOUT', { numRows: numRows, numCols: numCols });
   };
 
+  /**
+   * The hanging protocols that apply to a study, with their stages, and the
+   * study's main modality: `{modality, protocols: [{id, name, stages: [{id, name}]}]}`.
+   */
+  ExternalControlClient.prototype.getHangingProtocols = function (target) {
+    return this.send('GET_HANGING_PROTOCOLS', target || {});
+  };
+
+  /**
+   * `{StudyInstanceUID, protocolId?, stageId?}`: hang the study that way, or,
+   * without protocolId, the way OHIF chooses on its own.
+   */
+  ExternalControlClient.prototype.setHangingProtocol = function (target) {
+    return this.send('SET_HANGING_PROTOCOL', target || {});
+  };
+
   ExternalControlClient.prototype.getSessionState = function () {
     return this.send('GET_SESSION_STATE', {});
   };
@@ -686,6 +708,20 @@
   /** Only answered when the viewer was configured with `allowRunCommands`. */
   ExternalControlClient.prototype.runCommands = function (commands) {
     return this.send('RUN_COMMANDS', { commands: commands });
+  };
+
+  /** Drop every trace of the viewer we were talking to. */
+  ExternalControlClient.prototype.forgetViewer = function () {
+    this.stopHandshake();
+    this.connected = false;
+    this.viewerWindow = null;
+    this.via = null;
+    this.instance = null;
+    try {
+      window.localStorage.removeItem(this.storageKey());
+    } catch (e) {
+      /* see rememberOpened */
+    }
   };
 
   ExternalControlClient.prototype.close = function () {

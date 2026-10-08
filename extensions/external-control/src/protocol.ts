@@ -36,6 +36,10 @@ export const Actions = {
    * credentials when the host holds no window handle to navigate.
    */
   RELOAD_SESSION: 'RELOAD_SESSION',
+  /** Which hanging protocols (and stages) apply to a study, and its main modality. */
+  GET_HANGING_PROTOCOLS: 'GET_HANGING_PROTOCOLS',
+  /** Hang a study with a protocol and stage, or back to OHIF's own choice. */
+  SET_HANGING_PROTOCOL: 'SET_HANGING_PROTOCOL',
   /** Read back what the session holds, so the host can reconcile. */
   GET_SESSION_STATE: 'GET_SESSION_STATE',
   /** Escape hatch onto the commands manager; off unless configured on. */

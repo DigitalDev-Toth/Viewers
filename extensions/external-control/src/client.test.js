@@ -328,6 +328,21 @@ describe('OHIFExternalControl client', () => {
       expect(viewerWindow.location.href).toBe('cargando');
     });
 
+    it('si el radiólogo cerró la ventana, open() vuelve a abrirla por URL', () => {
+      ready(viewerWindow);
+      expect(client.connected).toBe(true);
+      viewerWindow.closed = true;
+      const nueva = fakeViewerWindow();
+      window.open = jest.fn(() => nueva);
+
+      client.open().catch(() => {});
+
+      // Antes se resolvía sobre la conexión vieja y la ventana nueva quedaba
+      // en about:blank.
+      expect(client.connected).toBe(false);
+      expect(window.open).toHaveBeenCalledWith(VIEWER + '/', 'ohif-viewer', '');
+    });
+
     it('emite `ready` una sola vez aunque el visor lo repita', () => {
       const escucha = jest.fn();
       client.on('ready', escucha);

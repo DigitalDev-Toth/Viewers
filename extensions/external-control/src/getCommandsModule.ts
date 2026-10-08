@@ -11,6 +11,30 @@ import { ErrorCodes, ExternalControlError } from './protocol';
 import purgeDisplaySetImages from './purgeDisplaySetImages';
 import { cancelStudyPrefetch, prefetchStudy, studyPrefetchProgress } from './prefetchStudyImages';
 
+/** Series that are not images to read: reports, presentation states, key objects. */
+const NON_IMAGE_MODALITIES = new Set(['SR', 'PR', 'KO']);
+
+/**
+ * The modality a study is "about": the one most of its series have, leaving
+ * out the non-image ones. A host keys per-modality preferences on it because
+ * its own idea of the modality may be coarser ("rx" for everything).
+ */
+export function mainModality(series: Array<{ Modality?: string }>): string | null {
+  const counts = new Map<string, number>();
+  for (const { Modality } of series) {
+    if (Modality && !NON_IMAGE_MODALITIES.has(Modality)) {
+      counts.set(Modality, (counts.get(Modality) ?? 0) + 1);
+    }
+  }
+  let best: string | null = null;
+  counts.forEach((count, modality) => {
+    if (best === null || count > counts.get(best)) {
+      best = modality;
+    }
+  });
+  return best;
+}
+
 /** A bound, not a taste: past 4 per side each viewport is too small to read. */
 const MAX_GRID_SIDE = 4;
 
@@ -94,6 +118,15 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
       throw new ExternalControlError(ErrorCodes.INTERNAL, 'no hay data source activo');
     }
     return dataSource;
+  }
+
+  /** getProtocolById throws on an unknown id rather than returning nothing. */
+  function findProtocol(protocolId: string) {
+    try {
+      return hangingProtocolService.getProtocolById(protocolId);
+    } catch {
+      return undefined;
+    }
   }
 
   /** Every image of a study, series in the order the panel shows them. */
@@ -519,6 +552,152 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
     },
 
     /**
+     * Which hanging protocols apply to a study, with their stages — for a host
+     * that lets each doctor pick a preferred layout per modality.
+     *
+     * Every registered protocol is evaluated, not only the mode's active ones:
+     * the point is to offer what fits this study, and the mode typically
+     * activates just a default. Matching uses the protocol engine's own rules
+     * against this study and its display sets alone.
+     */
+    getHangingProtocols: async ({ StudyInstanceUID }) => {
+      if (typeof StudyInstanceUID !== 'string' || !StudyInstanceUID) {
+        throw new ExternalControlError(ErrorCodes.BAD_REQUEST, 'falta StudyInstanceUID');
+      }
+      await whenSessionReady();
+      const study = DicomMetadataStore.getStudy(StudyInstanceUID);
+      const displaySets = displaySetsForStudy(StudyInstanceUID);
+      if (!study || !displaySets.length) {
+        throw new ExternalControlError(
+          ErrorCodes.NOT_FOUND,
+          `el estudio ${StudyInstanceUID} no está en la sesión`
+        );
+      }
+
+      const series = (study.series ?? []).map(serie => ({
+        Modality: serie.Modality ?? serie.instances?.[0]?.Modality,
+      }));
+      const matchStudy = {
+        ...study,
+        ModalitiesInStudy:
+          study.ModalitiesInStudy?.length > 0
+            ? study.ModalitiesInStudy
+            : [...new Set(series.map(serie => serie.Modality).filter(Boolean))],
+      };
+
+      const protocols = [];
+      for (const protocolId of hangingProtocolService.protocols.keys()) {
+        const protocol = findProtocol(protocolId);
+        const rules = protocol?.protocolMatchingRules;
+        if (!rules?.length) {
+          continue;
+        }
+        const { score } = hangingProtocolService.runMatchingRules(matchStudy, rules, {
+          studies: [matchStudy],
+          displaySets,
+        });
+        if (score > 0) {
+          protocols.push({
+            id: protocol.id,
+            name: protocol.name ?? protocol.id,
+            score,
+            // A stage without id cannot be asked for by SET_HANGING_PROTOCOL
+            // — OHIF looks stages up by id only — so it comes back as null.
+            stages: (protocol.stages ?? []).map(stage => ({
+              id: stage.id ?? null,
+              name: stage.name ?? stage.id ?? null,
+            })),
+          });
+        }
+      }
+      protocols.sort((a, b) => b.score - a.score);
+
+      return {
+        modality: mainModality(series),
+        protocols: protocols.map(({ score, ...protocol }) => protocol),
+      };
+    },
+
+    /**
+     * Hang a study with a given protocol and stage, or — without protocolId —
+     * go back to the one OHIF picks on its own.
+     */
+    setHangingProtocol: async ({ StudyInstanceUID, protocolId, stageId }) => {
+      if (typeof StudyInstanceUID !== 'string' || !StudyInstanceUID) {
+        throw new ExternalControlError(ErrorCodes.BAD_REQUEST, 'falta StudyInstanceUID');
+      }
+      if (protocolId !== undefined && protocolId !== null && typeof protocolId !== 'string') {
+        throw new ExternalControlError(ErrorCodes.BAD_REQUEST, 'protocolId tiene que ser texto');
+      }
+      if (stageId !== undefined && stageId !== null && typeof stageId !== 'string') {
+        throw new ExternalControlError(ErrorCodes.BAD_REQUEST, 'stageId tiene que ser texto');
+      }
+      if (stageId && !protocolId) {
+        throw new ExternalControlError(
+          ErrorCodes.BAD_REQUEST,
+          'stageId sin protocolId: no se sabe de qué protocolo es la etapa'
+        );
+      }
+      await whenSessionReady();
+      const displaySets = displaySetsForStudy(StudyInstanceUID);
+      const study = DicomMetadataStore.getStudy(StudyInstanceUID);
+      if (!study || !displaySets.length) {
+        throw new ExternalControlError(
+          ErrorCodes.NOT_FOUND,
+          `el estudio ${StudyInstanceUID} no está en la sesión`
+        );
+      }
+
+      if (!protocolId) {
+        // What OHIF would have chosen for this study on its own.
+        hangingProtocolService.run({
+          activeStudy: study,
+          displaySets: displaySetService.getActiveDisplaySets(),
+        });
+      } else {
+        const protocol = findProtocol(protocolId);
+        if (!protocol) {
+          throw new ExternalControlError(ErrorCodes.NOT_FOUND, `no existe el protocolo ${protocolId}`);
+        }
+        if (stageId && !(protocol.stages ?? []).some(stage => stage.id === stageId)) {
+          throw new ExternalControlError(
+            ErrorCodes.NOT_FOUND,
+            `el protocolo ${protocolId} no tiene la etapa ${stageId}`
+          );
+        }
+        // A fresh run on this study, so the protocol's selectors pick among
+        // its series — and not whatever the previous one left hung.
+        hangingProtocolService.run(
+          { activeStudy: study, displaySets: displaySetService.getActiveDisplaySets() },
+          protocol.id,
+          stageId ? { stageId } : {}
+        );
+      }
+
+      const { protocolId: applied, stageIndex, activeStudyUID } = hangingProtocolService.getState();
+      const appliedProtocol = findProtocol(applied);
+      const appliedStageId = appliedProtocol?.stages?.[stageIndex]?.id ?? null;
+      // The service swallows its own failures — a stage whose required series
+      // the study lacks is "disabled" and silently not applied — so the only
+      // honest answer comes from reading back what got hung.
+      const requestedId = protocolId && findProtocol(protocolId)?.id;
+      if (requestedId && (applied !== requestedId || (stageId && appliedStageId !== stageId))) {
+        throw new ExternalControlError(
+          ErrorCodes.NOT_FOUND,
+          stageId
+            ? `la etapa ${stageId} de ${protocolId} no aplica a este estudio`
+            : `el protocolo ${protocolId} no aplica a este estudio`
+        );
+      }
+      return {
+        StudyInstanceUID: activeStudyUID,
+        protocolId: applied,
+        stageId: appliedStageId,
+        stageIndex,
+      };
+    },
+
+    /**
      * Reload this window through the viewer's own `/open?token=…` link.
      *
      * A host that found the viewer over the bus has no window handle, so when
@@ -673,6 +852,8 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
       removeStudies: { commandFn: actions.removeStudies },
       focusStudy: { commandFn: actions.focusStudy },
       setViewerLayout: { commandFn: actions.setViewerLayout },
+      getHangingProtocols: { commandFn: actions.getHangingProtocols },
+      setHangingProtocol: { commandFn: actions.setHangingProtocol },
       reloadViewerSession: { commandFn: actions.reloadViewerSession },
       getSessionState: { commandFn: actions.getSessionState },
     },

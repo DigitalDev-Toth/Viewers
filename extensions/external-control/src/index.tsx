@@ -36,6 +36,8 @@ const ACTION_COMMANDS = {
   [Actions.PREFETCH_STUDIES]: 'prefetchStudies',
   [Actions.FOCUS]: 'focusStudy',
   [Actions.SET_LAYOUT]: 'setViewerLayout',
+  [Actions.GET_HANGING_PROTOCOLS]: 'getHangingProtocols',
+  [Actions.SET_HANGING_PROTOCOL]: 'setHangingProtocol',
   [Actions.RELOAD_SESSION]: 'reloadViewerSession',
   [Actions.GET_SESSION_STATE]: 'getSessionState',
 };

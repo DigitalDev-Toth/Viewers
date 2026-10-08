@@ -131,7 +131,8 @@ Viewer → host:
 | Action | Payload | Does |
 |---|---|---|
 | `HANDSHAKE` | — | answered with `READY` and the capability list |
-| `ADD_STUDIES` | `{studies, focus?}` | loads studies into the session |
+| `ADD_STUDIES` | `{studies, focus?, prefetch?}` | loads studies into the session; `prefetch` also downloads their images in the background |
+| `PREFETCH_STUDIES` | `{studies}` | background download for studies already in the session |
 | `REMOVE_STUDIES` | `{studies}` | empties their viewports, purges their images |
 | `FOCUS` | `{StudyInstanceUID}` or `{displaySetInstanceUID}` | hangs it and raises the window |
 | `SET_LAYOUT` | `{numRows, numCols}` (1–4 each) | splits the grid; new viewports get series not yet shown |
@@ -147,6 +148,16 @@ Errors come back as `{ok: false, error: {code, message}}`. Only an error the
 handler chose to raise has its message forwarded; anything unexpected becomes
 `INTERNAL` and is logged in the viewer, because an exception can carry paths and
 identifiers the host has no business reading.
+
+### Prefetch
+
+Without `prefetch`, a study added to the session brings only its metadata:
+OHIF fetches pixels when a series lands in a viewport. With it, every image of
+the study is queued in Cornerstone's Prefetch lane at a priority served after
+OHIF's own StudyPrefetcher, so the study on screen is never starved. It stops
+at 80 % of the cache — the rest load on demand, as they would have — and
+REMOVE_STUDIES cancels what is still pending. `GET_SESSION_STATE` reports
+`prefetch: {total, loaded, failed, skipped}` per study.
 
 ## Known gaps
 

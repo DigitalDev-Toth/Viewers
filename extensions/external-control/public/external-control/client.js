@@ -645,12 +645,25 @@
     });
   };
 
+  /**
+   * `{focus: true}` shows the first one; `{prefetch: true}` also downloads
+   * their images in the background, so that switching to them later is
+   * immediate. Without it only the metadata comes: images load when shown.
+   */
   ExternalControlClient.prototype.addStudies = function (studies, options) {
     var payload = { studies: studies };
     if (options && options.focus) {
       payload.focus = true;
     }
+    if (options && options.prefetch) {
+      payload.prefetch = true;
+    }
     return this.send('ADD_STUDIES', payload);
+  };
+
+  /** Background download for studies already added; progress in getSessionState(). */
+  ExternalControlClient.prototype.prefetchStudies = function (studies) {
+    return this.send('PREFETCH_STUDIES', { studies: studies });
   };
 
   ExternalControlClient.prototype.removeStudies = function (studies) {

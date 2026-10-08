@@ -9,6 +9,7 @@
 import { DicomMetadataStore } from '@ohif/core';
 import { ErrorCodes, ExternalControlError } from './protocol';
 import purgeDisplaySetImages from './purgeDisplaySetImages';
+import { cancelStudyPrefetch, prefetchStudy, studyPrefetchProgress } from './prefetchStudyImages';
 
 /** A bound, not a taste: past 4 per side each viewport is too small to read. */
 const MAX_GRID_SIDE = 4;
@@ -93,6 +94,15 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
       throw new ExternalControlError(ErrorCodes.INTERNAL, 'no hay data source activo');
     }
     return dataSource;
+  }
+
+  /** Every image of a study, series in the order the panel shows them. */
+  function imageIdsForStudy(StudyInstanceUID: string): string[] {
+    const dataSource = activeDataSource();
+    return displaySetsForStudy(StudyInstanceUID)
+      .filter(ds => !ds.unsupported)
+      .sort(customizationService.getCustomization('sortingCriteria'))
+      .flatMap(ds => dataSource.getImageIdsForDisplaySet(ds) ?? []);
   }
 
   function displaySetsForStudy(StudyInstanceUID: string) {
@@ -266,8 +276,10 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
      * @param studies UIDs, or `{StudyInstanceUID, url}` when the data source
      *   needs to be pointed at a manifest first (the `dicomjson` case).
      * @param focus hang the first of them once loaded.
+     * @param prefetch also download their images in the background, so that
+     *   switching to them later does not wait on the network.
      */
-    addStudies: async ({ studies, focus = false }) => {
+    addStudies: async ({ studies, focus = false, prefetch = false }) => {
       const entries = normalizeStudies(studies);
       if (!entries.length) {
         throw new ExternalControlError(ErrorCodes.BAD_REQUEST, 'no se indicó ningún estudio');
@@ -329,7 +341,45 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
       return {
         added,
         displaySets: added.reduce((total, uid) => total + displaySetsForStudy(uid).length, 0),
+        ...(prefetch
+          ? {
+              prefetch: Object.fromEntries(
+                added.map(uid => [uid, prefetchStudy(uid, imageIdsForStudy(uid))])
+              ),
+            }
+          : {}),
       };
+    },
+
+    /**
+     * Download, in the background, the images of studies already in the
+     * session — for a host that added them without `prefetch` and decides
+     * later. Progress is reported per study by GET_SESSION_STATE.
+     */
+    prefetchStudies: ({ studies }) => {
+      const entries = normalizeStudies(studies);
+      if (!entries.length) {
+        throw new ExternalControlError(ErrorCodes.BAD_REQUEST, 'no se indicó ningún estudio');
+      }
+      const prefetch = {};
+      const missing: string[] = [];
+      for (const { StudyInstanceUID } of entries) {
+        if (!displaySetsForStudy(StudyInstanceUID).length) {
+          missing.push(StudyInstanceUID);
+          continue;
+        }
+        prefetch[StudyInstanceUID] = prefetchStudy(
+          StudyInstanceUID,
+          imageIdsForStudy(StudyInstanceUID)
+        );
+      }
+      if (!Object.keys(prefetch).length) {
+        throw new ExternalControlError(
+          ErrorCodes.NOT_FOUND,
+          'ninguno de esos estudios está en la sesión: agrégalos primero'
+        );
+      }
+      return { prefetch, ...(missing.length ? { missing } : {}) };
     },
 
     /**
@@ -500,6 +550,9 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
       let purgedImages = 0;
 
       for (const { StudyInstanceUID } of entries) {
+        // Before anything else: what is still queued for it would only fill
+        // the cache with a study that is on its way out.
+        cancelStudyPrefetch(StudyInstanceUID);
         const displaySets = displaySetsForStudy(StudyInstanceUID);
         if (!displaySets.length) {
           continue;
@@ -596,6 +649,9 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
         const entry = studies.get(displaySet.StudyInstanceUID) ?? {
           StudyInstanceUID: displaySet.StudyInstanceUID,
           displaySets: [],
+          ...(studyPrefetchProgress(displaySet.StudyInstanceUID)
+            ? { prefetch: studyPrefetchProgress(displaySet.StudyInstanceUID) }
+            : {}),
         };
         entry.displaySets.push(displaySet.displaySetInstanceUID);
         studies.set(displaySet.StudyInstanceUID, entry);
@@ -613,6 +669,7 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
   return {
     definitions: {
       addStudies: { commandFn: actions.addStudies },
+      prefetchStudies: { commandFn: actions.prefetchStudies },
       removeStudies: { commandFn: actions.removeStudies },
       focusStudy: { commandFn: actions.focusStudy },
       setViewerLayout: { commandFn: actions.setViewerLayout },

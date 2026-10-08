@@ -23,6 +23,8 @@ export const Actions = {
   HANDSHAKE: 'HANDSHAKE',
   /** Load one or more studies into the running session. */
   ADD_STUDIES: 'ADD_STUDIES',
+  /** Download the images of studies already in the session, in the background. */
+  PREFETCH_STUDIES: 'PREFETCH_STUDIES',
   /** Drop a study's display sets and free its images. */
   REMOVE_STUDIES: 'REMOVE_STUDIES',
   /** Bring the window forward and hang a study or display set. */

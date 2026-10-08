@@ -33,6 +33,7 @@ import { id } from './id.js';
 const ACTION_COMMANDS = {
   [Actions.ADD_STUDIES]: 'addStudies',
   [Actions.REMOVE_STUDIES]: 'removeStudies',
+  [Actions.PREFETCH_STUDIES]: 'prefetchStudies',
   [Actions.FOCUS]: 'focusStudy',
   [Actions.SET_LAYOUT]: 'setViewerLayout',
   [Actions.RELOAD_SESSION]: 'reloadViewerSession',

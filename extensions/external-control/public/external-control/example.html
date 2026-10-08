@@ -121,6 +121,10 @@
 
 <fieldset>
   <legend>Acciones</legend>
+  <label style="display:flex;gap:.5rem;align-items:center;font-size:.9rem;opacity:1;margin:0 0 .5rem">
+    <input id="precargar" type="checkbox" checked style="width:auto">
+    Precargar imágenes al agregar (si no, se descargan recién al mostrar el estudio)
+  </label>
   <div class="row">
     <div>
       <label for="estudio">StudyInstanceUID</label>
@@ -234,9 +238,11 @@
   }
 
   var acciones = {
-    agregar: function () { return viewer.addStudies([estudioActual()]); },
+    agregar: function () {
+      return viewer.addStudies([estudioActual()], { prefetch: $('precargar').checked });
+    },
     'agregar-y-enfocar': function () {
-      return viewer.addStudies([estudioActual()], { focus: true });
+      return viewer.addStudies([estudioActual()], { focus: true, prefetch: $('precargar').checked });
     },
     enfocar: function () {
       return viewer.focus({ StudyInstanceUID: estudioActual().StudyInstanceUID });
@@ -421,7 +427,10 @@
       conectar();
     }
     ejecutar((mostrar ? 'agregar y mostrar ' : 'agregar ') + uid, function () {
-      return viewer.addStudies([{ StudyInstanceUID: uid, url: manifiesto }], { focus: mostrar });
+      return viewer.addStudies([{ StudyInstanceUID: uid, url: manifiesto }], {
+        focus: mostrar,
+        prefetch: $('precargar').checked,
+      });
     });
   }
 

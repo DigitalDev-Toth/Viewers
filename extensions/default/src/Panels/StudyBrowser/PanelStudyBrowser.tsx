@@ -401,9 +401,14 @@ function PanelStudyBrowser({
 
   const studyTabs = createStudyBrowserTabs(StudyInstanceUIDs, studyDisplayList, displaySets);
   const activeDisplaySetUID = viewports.get(activeViewportId)?.displaySetInstanceUIDs?.[0];
-  const activeStudyInstanceUID = activeDisplaySetUID
-    ? displaySetService.getDisplaySetByUID(activeDisplaySetUID)?.StudyInstanceUID
-    : undefined;
+  // With the active viewport empty — a layout that found nothing to put there
+  // — the study last brought on screen is still the one being read; the
+  // hanging protocol service keeps it. Without this fallback the panel lost
+  // its grouping and the next patient's study looked like this patient's.
+  const activeStudyInstanceUID =
+    (activeDisplaySetUID
+      ? displaySetService.getDisplaySetByUID(activeDisplaySetUID)?.StudyInstanceUID
+      : undefined) ?? servicesManager.services.hangingProtocolService.getState()?.activeStudyUID;
   const groupByPatient = Boolean(
     customizationService.getCustomization('studyBrowser.groupByPatient')
   );

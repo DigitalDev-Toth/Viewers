@@ -5,7 +5,8 @@ const { formatPN, formatDate } = utils;
 
 function usePatientInfo() {
   const { servicesManager } = useSystem();
-  const { displaySetService, viewportGridService, customizationService } = servicesManager.services;
+  const { displaySetService, viewportGridService, customizationService, hangingProtocolService } =
+    servicesManager.services;
   // With the study browser grouped by patient the session holds several
   // patients on purpose — the one being read and a queue of the next ones — so
   // "Multiple Patients" says nothing useful. The header follows the patient of
@@ -57,7 +58,15 @@ function usePatientInfo() {
       return;
     }
     const uid = state?.viewports?.get(state.activeViewportId)?.displaySetInstanceUIDs?.[0];
-    const displaySet = uid ? displaySetService.getDisplaySetByUID(uid) : null;
+    let displaySet = uid ? displaySetService.getDisplaySetByUID(uid) : null;
+    if (!displaySet) {
+      // Empty active viewport: the study last brought on screen, as the
+      // study browser does.
+      const activeStudyUID = hangingProtocolService.getState()?.activeStudyUID;
+      displaySet = displaySetService
+        .getActiveDisplaySets()
+        .find(ds => ds.StudyInstanceUID === activeStudyUID);
+    }
     const instance = displaySet?.instances?.[0] || displaySet?.instance;
     if (instance) {
       setFromInstance(instance);

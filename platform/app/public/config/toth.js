@@ -383,6 +383,127 @@
     isPrimary: screen.isPrimary,
   });
 
+  // ─── Atajos de teclado ─────────────────────────────────────────────────
+  //
+  // Los de Horos (Horos/Sources/DefaultsOsiriX.m, la tabla HOTKEYS): los
+  // radiólogos del puesto vienen de ahí, y una herramienta por letra es lo que
+  // ya tienen en los dedos. OHIF trae sólo tres herramientas con tecla.
+  //
+  // Donde la letra de Horos pisaba una acción de OHIF, esa acción pasa a la
+  // misma letra con Shift (la rotación a la izquierda, a Shift+R). Lo que
+  // Horos tiene y OHIF no —texto, polígono abierto, repulsor, selector, 3D,
+  // `~` y `0`— queda sin asignar.
+  //
+  // Reemplaza la lista entera de OHIF (platform/core/src/defaults/
+  // hotkeyBindings.ts), así que lo que no se toca está copiado tal cual. Un
+  // radiólogo que reasigne algo en las preferencias sigue mandando sobre esto.
+  //
+  // OHIF identifica cada atajo por su comando y sus opciones: dos atajos a la
+  // misma herramienta los toma como uno reasignado, desengancha el primero y
+  // además lo guarda como preferencia del usuario en su navegador. Por eso
+  // cada atajo de herramienta lleva su tecla en las opciones (`atajo`), que
+  // setToolActive ignora: así `c` y `d` pueden activar la misma herramienta.
+  const herramienta = (toolName, label, keys) => ({
+    commandName: 'setToolActive',
+    commandOptions: { toolName, atajo: keys.join(' ') },
+    label,
+    keys,
+    isEditable: true,
+  });
+
+  const ATAJOS = [
+    // Herramientas, como en Horos.
+    herramienta('WindowLevel', 'Ventana/nivel', ['w']),
+    herramienta('Pan', 'Mover', ['m']),
+    herramienta('Zoom', 'Zoom', ['z']),
+    herramienta('PlanarRotate', 'Rotar', ['i']),
+    herramienta('Length', 'Longitud', ['l']),
+    herramienta('Angle', 'Ángulo', ['a']),
+    herramienta('EllipticalROI', 'Óvalo', ['e']),
+    herramienta('ArrowAnnotate', 'Flecha', ['q']),
+    // OHIF hace polígono por clics y trazo libre con la misma herramienta.
+    herramienta('PlanarFreehandROI', 'Polígono cerrado', ['c']),
+    herramienta('PlanarFreehandROI', 'Lápiz', ['d']),
+    herramienta('Probe', 'Punto', ['p']),
+    herramienta('Crosshairs', 'Cruz de MPR', ['y']),
+    { commandName: 'flipViewportHorizontal', label: 'Voltear horizontal', keys: ['h'], isEditable: true },
+    { commandName: 'flipViewportVertical', label: 'Voltear vertical', keys: ['v'], isEditable: true },
+
+    // Las acciones de OHIF que Horos desplazó, en la misma letra con Shift.
+    { commandName: 'invertViewport', label: 'Invertir', keys: ['shift+i'], isEditable: true },
+    { commandName: 'rotateViewportCW', label: 'Rotar a la derecha', keys: ['r'], isEditable: true },
+    { commandName: 'rotateViewportCCW', label: 'Rotar a la izquierda', keys: ['shift+r'], isEditable: true },
+    { commandName: 'toggleCine', label: 'Cine', keys: ['shift+c'] },
+    herramienta('CircularEraser', 'Borrador', ['shift+e']),
+    { commandName: 'addNewSegment', label: 'Nuevo segmento', keys: ['shift+a'], isEditable: true },
+
+    // El resto, como viene en OHIF.
+    { commandName: 'scaleUpViewport', label: 'Acercar', keys: ['+'], isEditable: true },
+    { commandName: 'scaleDownViewport', label: 'Alejar', keys: ['-'], isEditable: true },
+    { commandName: 'fitViewportToWindow', label: 'Ajustar a la ventana', keys: ['='], isEditable: true },
+    { commandName: 'incrementActiveViewport', label: 'Viewport siguiente', keys: ['right'], isEditable: true },
+    { commandName: 'decrementActiveViewport', label: 'Viewport anterior', keys: ['left'], isEditable: true },
+    {
+      commandName: 'updateViewportDisplaySet',
+      commandOptions: { direction: -1 },
+      label: 'Serie anterior',
+      keys: ['pageup'],
+      isEditable: true,
+    },
+    {
+      commandName: 'updateViewportDisplaySet',
+      commandOptions: { direction: 1 },
+      label: 'Serie siguiente',
+      keys: ['pagedown'],
+      isEditable: true,
+    },
+    { commandName: 'nextStage', context: 'DEFAULT', label: 'Etapa siguiente', keys: ['.'], isEditable: true },
+    { commandName: 'previousStage', context: 'DEFAULT', label: 'Etapa anterior', keys: [','], isEditable: true },
+    { commandName: 'nextImage', label: 'Imagen siguiente', keys: ['down'], isEditable: true },
+    { commandName: 'previousImage', label: 'Imagen anterior', keys: ['up'], isEditable: true },
+    { commandName: 'firstImage', label: 'Primera imagen', keys: ['home'], isEditable: true },
+    { commandName: 'lastImage', label: 'Última imagen', keys: ['end'], isEditable: true },
+    { commandName: 'resetViewport', label: 'Restablecer', keys: ['space'], isEditable: true },
+    { commandName: 'cancelActiveOperation', label: 'Cancelar', keys: ['esc'] },
+    {
+      commandName: 'setWindowLevelPreset',
+      commandOptions: { presetName: 'ct-soft-tissue', presetIndex: 0 },
+      label: 'Ventana TC partes blandas',
+      keys: ['1'],
+    },
+    {
+      commandName: 'setWindowLevelPreset',
+      commandOptions: { presetName: 'ct-lung', presetIndex: 1 },
+      label: 'Ventana TC pulmón',
+      keys: ['2'],
+    },
+    {
+      commandName: 'setWindowLevelPreset',
+      commandOptions: { presetName: 'ct-bone', presetIndex: 2 },
+      label: 'Ventana TC hueso',
+      keys: ['3'],
+    },
+    {
+      commandName: 'setWindowLevelPreset',
+      commandOptions: { presetName: 'ct-brain', presetIndex: 3 },
+      label: 'Ventana TC cerebro',
+      keys: ['4'],
+    },
+    { commandName: 'deleteActiveAnnotation', label: 'Borrar anotación', keys: ['backspace'] },
+    { commandName: 'acceptPreview', label: 'Aceptar vista previa', keys: ['enter'] },
+    { commandName: 'undo', label: 'Deshacer', keys: ['ctrl+z'], isEditable: true },
+    { commandName: 'redo', label: 'Rehacer', keys: ['ctrl+y'], isEditable: true },
+    {
+      commandName: 'interpolateScrollForMarkerLabelmap',
+      label: 'Interpolar entre cortes',
+      keys: ['n'],
+      isEditable: true,
+    },
+    { commandName: 'increaseBrushSize', label: 'Pincel más grande', keys: [']'], isEditable: true },
+    { commandName: 'decreaseBrushSize', label: 'Pincel más chico', keys: ['['], isEditable: true },
+    herramienta('CircularBrush', 'Pincel', ['b']),
+  ];
+
   /** @returns {AppTypes.Config} */
   function baseConfig() {
     return {
@@ -396,9 +517,12 @@
       modes: [],
       customizationService: {
         mode: {
-          // El RIS le va empujando al visor los estudios que vienen: el panel
-          // muestra arriba el paciente en pantalla y abajo, aparte, la cola.
-          '*': { 'studyBrowser.groupByPatient': { $set: true } },
+          '*': {
+            // El RIS le va empujando al visor los estudios que vienen: el panel
+            // muestra arriba el paciente en pantalla y abajo, aparte, la cola.
+            'studyBrowser.groupByPatient': { $set: true },
+            'ohif.hotkeyBindings': { $set: ATAJOS },
+          },
         },
       },
       showStudyList: false,

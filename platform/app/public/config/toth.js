@@ -416,6 +416,7 @@
     herramienta('WindowLevel', 'Ventana/nivel', ['w']),
     herramienta('Pan', 'Mover', ['m']),
     herramienta('Zoom', 'Zoom', ['z']),
+    herramienta('StackScroll', 'Desplazar cortes', ['s']),
     herramienta('PlanarRotate', 'Rotar', ['i']),
     herramienta('Length', 'Longitud', ['l']),
     herramienta('Angle', 'Ángulo', ['a']),

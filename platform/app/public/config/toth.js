@@ -586,7 +586,9 @@
       // que cada scroll pida imágenes que ya podrían estar en memoria.
       studyPrefetcher: {
         enabled: true,
-        displaySetsCount: 2,
+        // El estudio completo, no sólo las series vecinas a la activa: el
+        // radiólogo recorre todas, y cada una que no está bajada es una espera.
+        displaySetsCount: Infinity,
         // Peticiones en vuelo a la vez, no en total: cada una atraviesa el
         // relay hasta el conector del centro, así que subirlo lo congestiona.
         maxNumPrefetchRequests: 10,

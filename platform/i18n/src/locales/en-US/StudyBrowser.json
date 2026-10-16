@@ -8,5 +8,8 @@
   "Series Number": "Series Number",
   "Series Date": "Series Date",
   "Thumbnail Double Click": "Thumbnail Double Click",
-  "The selected display sets could not be added to the viewport.": "The selected display sets could not be added to the viewport."
+  "The selected display sets could not be added to the viewport.": "The selected display sets could not be added to the viewport.",
+  "Downloaded": "Downloaded",
+  "Downloading": "Downloading: {{percent}}%",
+  "Images could not be downloaded": "Images not downloaded: {{number}}. Click to retry."
 }

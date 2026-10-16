@@ -52,6 +52,12 @@ type StudyPrefetcherConfig = {
   maxNumPrefetchRequests: number;
   /* Display sets prefetching order (closest, downward and upward) */
   order: StudyPrefetchOrder;
+  /**
+   * Delays (ms) before each new attempt to load an image that failed, so
+   * `[2000, 5000]` tries twice more: 2 s and then 5 s after each failure.
+   * An image is only counted as failed once these run out. Empty: no retries.
+   */
+  retryDelays: number[];
 };
 
 type DisplaySetLoadingState = {
@@ -67,6 +73,8 @@ type ImageRequest = {
   displaySetInstanceUID: string;
   imageId: string;
   aborted: boolean;
+  /* Retries go first and are sent even while the active display sets load */
+  isRetry?: boolean;
 };
 
 type PubSubServiceSubscription = { unsubscribe: () => any };
@@ -110,6 +118,10 @@ class StudyPrefetcherService extends PubSubService {
   private _isRunning = false;
   private _displaySetLoadingStates = new Map<string, DisplaySetLoadingState>();
   private _imageIdsToDisplaySetsMap = new Map<string, Set<string>>();
+  private _retryAttempts = new Map<string, number>();
+  /* Images that failed and will be tried again (scheduled, queued or in flight) */
+  private _awaitingRetry = new Set<string>();
+  private _retryTimeouts = new Set<ReturnType<typeof setTimeout>>();
   private config: StudyPrefetcherConfig = {
     /* Enable/disable study prefetching service */
     enabled: false,
@@ -128,6 +140,8 @@ class StudyPrefetcherService extends PubSubService {
     maxNumPrefetchRequests: 10,
     /* Display sets prefetching order (closest, downward and upward) */
     order: StudyPrefetchOrder.downward,
+    /* Delays (ms) before retrying an image that failed to load */
+    retryDelays: [],
   };
 
   // Properties set by Cornerstone extension (initStudyPrefetcherService)
@@ -203,8 +217,14 @@ class StudyPrefetcherService extends PubSubService {
     const fnImageLoadFailedEventListener = evt => {
       const { imageId } = evt.detail;
 
-      this._moveImageIdToFailedSet(imageId);
-      fnOnImageLoadCompleted(imageId);
+      // A prefetch request is handled, and retried, by its own rejection
+      // handler, which runs right after this event.
+      if (this._inflightRequests.has(imageId)) {
+        return;
+      }
+
+      this._handleImageLoadFailure(imageId);
+      this._sendNextRequests();
     };
 
     return this.imageLoadEventsManager.addEventListeners(
@@ -325,10 +345,22 @@ class StudyPrefetcherService extends PubSubService {
 
     return (
       displaySetsInstanceUIDs.length &&
-      displaySetsInstanceUIDs.every(
-        displaySetsInstanceUID =>
-          this._displaySetLoadingStates.get(displaySetsInstanceUID).loadingProgress >= 1
-      )
+      displaySetsInstanceUIDs.every(displaySetsInstanceUID => {
+        const displaySetLoadingState = this._displaySetLoadingStates.get(displaySetsInstanceUID);
+        const { loadingProgress, numInstances, loadedImageIds, failedImageIds, pendingImageIds } =
+          displaySetLoadingState;
+
+        if (loadingProgress >= 1) {
+          return true;
+        }
+
+        // An image waiting to be retried does not hold back the rest of the
+        // study: a missing one would otherwise stall it for all the retries.
+        let numAwaitingRetry = 0;
+        pendingImageIds.forEach(imageId => this._awaitingRetry.has(imageId) && numAwaitingRetry++);
+
+        return loadedImageIds.size + failedImageIds.size + numAwaitingRetry >= numInstances;
+      })
     );
   }
 
@@ -495,11 +527,16 @@ class StudyPrefetcherService extends PubSubService {
       return;
     }
 
+    this._retryAttempts.delete(imageId);
+    this._awaitingRetry.delete(imageId);
+
     for (const displaySetInstanceUID of Array.from(displaySetsInstanceUIDs.values())) {
       const displaySetLoadingState = this._displaySetLoadingStates.get(displaySetInstanceUID);
-      const { pendingImageIds, loadedImageIds } = displaySetLoadingState;
+      const { pendingImageIds, loadedImageIds, failedImageIds } = displaySetLoadingState;
 
       pendingImageIds.delete(imageId);
+      // It may have failed before and loaded later (eg: retried by hand)
+      failedImageIds.delete(imageId);
       loadedImageIds.add(imageId);
 
       this._updateDisplaySetLoadingProgress(displaySetLoadingState);
@@ -515,6 +552,8 @@ class StudyPrefetcherService extends PubSubService {
     if (!displaySetsInstanceUIDs) {
       return;
     }
+
+    this._awaitingRetry.delete(imageId);
 
     for (const displaySetInstanceUID of Array.from(displaySetsInstanceUIDs.values())) {
       const displaySetLoadingState = this._displaySetLoadingStates.get(displaySetInstanceUID);
@@ -532,17 +571,22 @@ class StudyPrefetcherService extends PubSubService {
 
   private _triggerDisplaySetEvents(displaySetInstanceUID: string) {
     const displaySetLoadingState = this._displaySetLoadingStates.get(displaySetInstanceUID);
-    const { loadingProgress, numInstances } = displaySetLoadingState;
+    const { loadingProgress, numInstances, failedImageIds } = displaySetLoadingState;
+    // Failed images count towards the progress: a complete display set may
+    // still have some missing.
+    const numFailedImages = failedImageIds.size;
 
     this._broadcastEvent(this.EVENTS.DISPLAYSET_LOAD_PROGRESS, {
       displaySetInstanceUID,
       numInstances,
       loadingProgress,
+      numFailedImages,
     });
 
     if (loadingProgress >= 1) {
       this._broadcastEvent(this.EVENTS.DISPLAYSET_LOAD_COMPLETE, {
         displaySetInstanceUID,
+        numFailedImages,
       });
     }
   }
@@ -572,7 +616,7 @@ class StudyPrefetcherService extends PubSubService {
     const { imageId } = imageRequest;
 
     this._inflightRequests.delete(imageId);
-    this._moveImageIdToFailedSet(imageId);
+    this._handleImageLoadFailure(imageId);
 
     // `sendNextRequests` must be called after removing the request from the inflight
     // queue otherwise it shall not be able to send the request (maxNumPrefetchRequests)
@@ -586,11 +630,6 @@ class StudyPrefetcherService extends PubSubService {
       return;
     }
 
-    // Does not send any prefetch request until the active display sets are loaded
-    if (!this._areActiveDisplaySetsLoaded()) {
-      return;
-    }
-
     const { _pendingRequests: pendingRequests, _inflightRequests: inflightRequests } = this;
     const { maxNumPrefetchRequests } = this.config;
 
@@ -598,10 +637,16 @@ class StudyPrefetcherService extends PubSubService {
       return;
     }
 
-    const numImageRequests = Math.min(
-      pendingRequests.length,
-      maxNumPrefetchRequests - inflightRequests.size
-    );
+    // Until the active display sets are loaded only retries go out. They are
+    // always at the front of the queue (see `_enqueueRetry`).
+    let numSendable = pendingRequests.length;
+
+    if (!this._areActiveDisplaySetsLoaded()) {
+      const firstNotRetry = pendingRequests.findIndex(request => !request.isRetry);
+      numSendable = firstNotRetry === -1 ? pendingRequests.length : firstNotRetry;
+    }
+
+    const numImageRequests = Math.min(numSendable, maxNumPrefetchRequests - inflightRequests.size);
     const imageRequests = this._pendingRequests.splice(0, numImageRequests);
 
     imageRequests.forEach(imageRequest => {
@@ -626,6 +671,101 @@ class StudyPrefetcherService extends PubSubService {
       );
 
       inflightRequests.set(imageId, imageRequest);
+    });
+  }
+
+  /**
+   * Schedules another attempt for an image that failed to load, or counts it
+   * as failed once `retryDelays` run out.
+   */
+  private _handleImageLoadFailure(imageId: string): void {
+    if (!this._imageIdsToDisplaySetsMap.has(imageId)) {
+      return;
+    }
+
+    const attempt = this._retryAttempts.get(imageId) ?? 0;
+    const delay = this.config.retryDelays?.[attempt];
+
+    if (delay === undefined) {
+      this._moveImageIdToFailedSet(imageId);
+      return;
+    }
+
+    this._retryAttempts.set(imageId, attempt + 1);
+    this._awaitingRetry.add(imageId);
+
+    const timeout = setTimeout(() => {
+      this._retryTimeouts.delete(timeout);
+      this._enqueueRetry(imageId);
+    }, delay);
+
+    this._retryTimeouts.add(timeout);
+  }
+
+  private _enqueueRetry(imageId: string): void {
+    if (!this._isRunning) {
+      return;
+    }
+
+    // Loaded in the meantime, eg: by a viewport
+    if (this.cache.isImageCached(imageId)) {
+      this._moveImageIdToLoadedSet(imageId);
+      return;
+    }
+
+    const [displaySetInstanceUID] = this._imageIdsToDisplaySetsMap.get(imageId) ?? [];
+    const isQueued =
+      this._inflightRequests.has(imageId) ||
+      this._pendingRequests.some(request => request.isRetry && request.imageId === imageId);
+
+    if (!displaySetInstanceUID || isQueued) {
+      return;
+    }
+
+    this._pendingRequests.unshift({
+      displaySetInstanceUID,
+      imageId,
+      aborted: false,
+      isRetry: true,
+    });
+    this._sendNextRequests();
+  }
+
+  /**
+   * Tries again the images that failed to load, from scratch: each one gets
+   * all the `retryDelays` again.
+   *
+   * @param displaySetInstanceUID - Only the images of this display set. All
+   * of them if not set.
+   */
+  public retryFailedImages(displaySetInstanceUID?: string): void {
+    if (!this._isRunning) {
+      return;
+    }
+
+    const displaySetLoadingStates = displaySetInstanceUID
+      ? [this._displaySetLoadingStates.get(displaySetInstanceUID)].filter(Boolean)
+      : Array.from(this._displaySetLoadingStates.values());
+    const failedImageIds = new Set<string>();
+
+    displaySetLoadingStates.forEach(({ failedImageIds: ids }) =>
+      ids.forEach(imageId => failedImageIds.add(imageId))
+    );
+
+    failedImageIds.forEach(imageId => {
+      // An image may belong to several display sets
+      this._imageIdsToDisplaySetsMap.get(imageId)?.forEach(uid => {
+        const displaySetLoadingState = this._displaySetLoadingStates.get(uid);
+
+        displaySetLoadingState.failedImageIds.delete(imageId);
+        displaySetLoadingState.pendingImageIds.add(imageId);
+        this._updateDisplaySetLoadingProgress(displaySetLoadingState);
+        this._triggerDisplaySetEvents(uid);
+      });
+
+      this._retryAttempts.delete(imageId);
+      this._awaitingRetry.add(imageId);
+      this._enqueueRetry(imageId);
     });
   }
 
@@ -681,6 +821,10 @@ class StudyPrefetcherService extends PubSubService {
     this._inflightRequests.forEach(inflightRequest => (inflightRequest.aborted = true));
 
     this._pendingRequests = [];
+    this._retryTimeouts.forEach(timeout => clearTimeout(timeout));
+    this._retryTimeouts.clear();
+    this._retryAttempts.clear();
+    this._awaitingRetry.clear();
     this._displaySetLoadingStates.clear();
     this._imageIdsToDisplaySetsMap.clear();
     this._inflightRequests.clear();

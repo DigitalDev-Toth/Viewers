@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useImageViewer } from '@ohif/ui-next';
 import { useSystem, utils } from '@ohif/core';
 import { useNavigate } from 'react-router-dom';
@@ -26,7 +26,8 @@ function PanelStudyBrowser({
   onDoubleClickThumbnailHandlerCallBack,
 }) {
   const { servicesManager, commandsManager, extensionManager } = useSystem();
-  const { displaySetService, customizationService } = servicesManager.services;
+  const { displaySetService, customizationService, studyPrefetcherService } =
+    servicesManager.services;
   const navigate = useNavigate();
   const studyMode =
     (customizationService.getCustomization('studyBrowser.studyMode') as string) || 'all';
@@ -48,6 +49,7 @@ function PanelStudyBrowser({
   const [studyDisplayList, setStudyDisplayList] = useState([]);
   const [displaySets, setDisplaySets] = useState([]);
   const [displaySetsLoadingState, setDisplaySetsLoadingState] = useState({});
+  const [displaySetsFailedImages, setDisplaySetsFailedImages] = useState({});
   const [thumbnailImageSrcMap, setThumbnailImageSrcMap] = useState({});
   const [jumpToDisplaySet, setJumpToDisplaySet] = useState(null);
 
@@ -268,6 +270,40 @@ function PanelStudyBrowser({
     });
   }, [displaySetService, dataSource, getImageSrc, activeViewportId, hasLoadedViewports]);
 
+  // ~~ subscriptions --> displaySetsLoadingState
+  useEffect(() => {
+    // One event per image: gather them so the panel redraws a few times a
+    // second instead of once per image.
+    const progressUpdates = {};
+    const failedImagesUpdates = {};
+    let flushTimeout = null;
+
+    const flush = () => {
+      flushTimeout = null;
+      const progress = { ...progressUpdates };
+      const failedImages = { ...failedImagesUpdates };
+      Object.keys(progressUpdates).forEach(uid => delete progressUpdates[uid]);
+      Object.keys(failedImagesUpdates).forEach(uid => delete failedImagesUpdates[uid]);
+
+      setDisplaySetsLoadingState(prevState => ({ ...prevState, ...progress }));
+      setDisplaySetsFailedImages(prevState => ({ ...prevState, ...failedImages }));
+    };
+
+    const { unsubscribe } = studyPrefetcherService.subscribe(
+      studyPrefetcherService.EVENTS.DISPLAYSET_LOAD_PROGRESS,
+      ({ displaySetInstanceUID, loadingProgress, numFailedImages }) => {
+        progressUpdates[displaySetInstanceUID] = loadingProgress;
+        failedImagesUpdates[displaySetInstanceUID] = numFailedImages ?? 0;
+        flushTimeout ??= setTimeout(flush, 250);
+      }
+    );
+
+    return () => {
+      unsubscribe();
+      clearTimeout(flushTimeout);
+    };
+  }, [studyPrefetcherService]);
+
   // ~~ displaySets
   useEffect(() => {
     const currentDisplaySets = displaySetService.activeDisplaySets;
@@ -399,7 +435,22 @@ function PanelStudyBrowser({
     customMapDisplaySets,
   ]);
 
-  const studyTabs = createStudyBrowserTabs(StudyInstanceUIDs, studyDisplayList, displaySets);
+  // Added here and not in the mapping: `customMapDisplaySets` replaces it.
+  const displaySetsWithFailedImages = useMemo(
+    () =>
+      displaySets.map(ds => ({
+        ...ds,
+        numFailedImages: displaySetsFailedImages[ds.displaySetInstanceUID] ?? 0,
+        onRetryFailedImages: () =>
+          studyPrefetcherService.retryFailedImages(ds.displaySetInstanceUID),
+      })),
+    [displaySets, displaySetsFailedImages, studyPrefetcherService]
+  );
+  const studyTabs = createStudyBrowserTabs(
+    StudyInstanceUIDs,
+    studyDisplayList,
+    displaySetsWithFailedImages
+  );
   const activeDisplaySetUID = viewports.get(activeViewportId)?.displaySetInstanceUIDs?.[0];
   // With the active viewport empty — a layout that found nothing to put there
   // — the study last brought on screen is still the one being read; the

@@ -2,6 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import classnames from 'classnames';
 import { ThumbnailList } from '../ThumbnailList';
+import { LoadingStatus } from '../Thumbnail/LoadingStatus';
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../Accordion';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../Tooltip';
@@ -24,6 +25,8 @@ const StudyItem = ({
   StudyMenuItems,
   StudyInstanceUID,
 }: withAppTypes) => {
+  const loadingStatus = getStudyLoadingStatus(displaySets);
+
   return (
     <Accordion
       type="single"
@@ -68,7 +71,10 @@ const StudyItem = ({
               </div>
               <div className="text-muted-foreground flex flex-col items-end pl-[10px] text-[12px]">
                 <div className="max-w-[150px] overflow-hidden text-ellipsis">{modalities}</div>
-                <div>{numInstances}</div>
+                <div className="flex items-center gap-[4px]">
+                  {loadingStatus && <LoadingStatus {...loadingStatus} />}
+                  <div>{numInstances}</div>
+                </div>
               </div>
               {StudyMenuItems && (
                 <div className="ml-2 flex items-center">
@@ -99,6 +105,40 @@ const StudyItem = ({
     </Accordion>
   );
 };
+
+/**
+ * The download status of a study, out of its series with images: done once
+ * they all are. Nothing until the prefetcher has reported on one of them.
+ */
+function getStudyLoadingStatus(displaySets) {
+  const imageDisplaySets = (displaySets ?? []).filter(
+    ds => ds.componentType !== 'thumbnailNoImage' && ds.numInstances > 0
+  );
+  const isReported = ds =>
+    typeof ds.loadingProgress === 'number' && !Number.isNaN(ds.loadingProgress);
+
+  if (!imageDisplaySets.some(isReported)) {
+    return null;
+  }
+
+  let numInstances = 0;
+  let numLoaded = 0;
+  let numFailedImages = 0;
+
+  imageDisplaySets.forEach(ds => {
+    numInstances += ds.numInstances;
+    numLoaded += isReported(ds) ? Math.min(ds.loadingProgress, 1) * ds.numInstances : 0;
+    numFailedImages += ds.numFailedImages ?? 0;
+  });
+
+  return {
+    // Rounding must not show as done a study still missing an image
+    loadingProgress: numLoaded >= numInstances ? 1 : Math.min(numLoaded / numInstances, 0.99),
+    numFailedImages,
+    onRetry: () =>
+      imageDisplaySets.forEach(ds => ds.numFailedImages > 0 && ds.onRetryFailedImages?.()),
+  };
+}
 
 StudyItem.propTypes = {
   date: PropTypes.string.isRequired,

@@ -593,6 +593,11 @@
         // relay hasta el conector del centro, así que subirlo lo congestiona.
         maxNumPrefetchRequests: 10,
         order: 'closest',
+        // Una imagen que falla se pide de nuevo a los 2, 5 y 15 s: un corte
+        // del relay o del conector no deja huecos en el estudio. Recién
+        // agotados se marca la serie con la advertencia, que reintenta al
+        // hacerle clic.
+        retryDelays: [2000, 5000, 15000],
       },
 
       dataSources: [

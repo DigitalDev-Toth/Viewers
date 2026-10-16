@@ -2,5 +2,8 @@
   "Primary": "Primario",
   "Recent": "Reciente",
   "All": "Todos",
-  "Studies": "Estudios"
+  "Studies": "Estudios",
+  "Downloaded": "Descargado",
+  "Downloading": "Descargando: {{percent}}%",
+  "Images could not be downloaded": "Imágenes sin descargar: {{number}}. Clic para reintentar."
 }

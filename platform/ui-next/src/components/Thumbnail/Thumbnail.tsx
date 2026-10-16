@@ -5,6 +5,7 @@ import { useDrag } from 'react-dnd';
 import { Icons } from '../Icons';
 import { DisplaySetMessageListTooltip } from '../DisplaySetMessageListTooltip';
 import { TooltipTrigger, TooltipContent, Tooltip } from '../Tooltip';
+import { LoadingStatus } from './LoadingStatus';
 
 const DraggableThumbnailContent = ({ dragData, children }: any) => {
   const [, drag] = useDrag({
@@ -42,6 +43,8 @@ const Thumbnail = ({
   seriesNumber,
   numInstances,
   loadingProgress,
+  numFailedImages = 0,
+  onRetryFailedImages,
   countIcon,
   messages,
   isActive,
@@ -121,6 +124,14 @@ const Thumbnail = ({
                 {modality}
               </div>
             </div>
+
+            {/* top left */}
+            <LoadingStatus
+              className="absolute top-0 left-0 p-[4px]"
+              loadingProgress={loadingProgress}
+              numFailedImages={numFailedImages}
+              onRetry={onRetryFailedImages}
+            />
 
             {/* top right */}
             <div className="absolute top-0 right-0 flex items-center gap-[4px]">
@@ -250,6 +261,11 @@ const Thumbnail = ({
           </div>
         </div>
         <div className="flex h-full items-center gap-[4px]">
+          <LoadingStatus
+            loadingProgress={loadingProgress}
+            numFailedImages={numFailedImages}
+            onRetry={onRetryFailedImages}
+          />
           <DisplaySetMessageListTooltip
             messages={messages}
             id={`display-set-tooltip-${displaySetInstanceUID}`}
@@ -349,6 +365,9 @@ Thumbnail.propTypes = {
   seriesNumber: PropTypes.any,
   numInstances: PropTypes.number.isRequired,
   loadingProgress: PropTypes.number,
+  /** Images counted in `loadingProgress` that could not be loaded */
+  numFailedImages: PropTypes.number,
+  onRetryFailedImages: PropTypes.func,
   messages: PropTypes.object,
   isActive: PropTypes.bool.isRequired,
   onClick: PropTypes.func.isRequired,

@@ -870,6 +870,18 @@ importers:
         specifier: workspace:*
         version: link:../default
 
+  extensions/toth-overlay:
+    dependencies:
+      '@cornerstonejs/core':
+        specifier: 5.6.12
+        version: 5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0)
+      '@cornerstonejs/dicom-image-loader':
+        specifier: 5.6.12
+        version: 5.6.12(patch_hash=ef071a5e874a3d13850a5d87fd21835962a89f4ce22842be4965d4e22adbae70)(@cornerstonejs/core@5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0))(@cornerstonejs/metadata@5.6.12)(dicom-parser@1.8.21)
+      '@ohif/core':
+        specifier: workspace:*
+        version: link:../../platform/core
+
   extensions/toth-propagate:
     dependencies:
       '@cornerstonejs/core':

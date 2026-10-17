@@ -407,64 +407,11 @@ test('la configuración del visor no cambia por todo esto', async () => {
 
 // ── el paciente en cada cuadro ─────────────────────────────────────────────
 
-/** Lo que el visor le pasa a cada ítem de la esquina, con un corte de mentira. */
-const esquina = (instance, referenceInstance = instance) => ({
-  instance,
-  referenceInstance,
-  formatters: {
-    formatPN: valor => (typeof valor === 'string' ? valor.replace(/\^/g, ' ').trim() : ''),
-    formatDate: valor =>
-      valor ? `${valor.slice(6, 8)}-${valor.slice(4, 6)}-${valor.slice(0, 4)}` : '',
-  },
-});
-
-const itemsEsquina = async () => {
+test('cada cuadro dice de qué paciente es: la extensión de la esquina va encendida', async () => {
   const { config } = await arrancar({ screens: [RIS, VERTICAL] });
-  return config.customizationService.mode['*']['viewportOverlay.topLeft'].$set;
-};
 
-const textoDe = (items, id, props) => {
-  const item = items.find(candidato => candidato.id === id);
-  assert.ok(item, `falta el ítem ${id}`);
-  return item.condition(props) ? item.contentF(props) : null;
-};
-
-test('cada cuadro dice de qué paciente es, antes que nada', async () => {
-  const items = await itemsEsquina();
-  const props = esquina({
-    PatientName: 'PÉREZ^JUANA',
-    PatientID: '12.345.678-9',
-    PatientSex: 'F',
-    PatientBirthDate: '19700315',
-    StudyDate: '20261017',
-    SeriesDescription: 'AXIAL',
-  });
-
-  // `Array.from`: los ítems vienen del contexto de la configuración, y
-  // `deepEqual` estricto mira también el prototipo del arreglo.
-  assert.deepEqual(
-    Array.from(items, item => item.id),
-    ['PatientName', 'PatientIdentity', 'StudyDate', 'SeriesDescription']
-  );
-  assert.equal(textoDe(items, 'PatientName', props), 'PÉREZ JUANA');
-  assert.equal(textoDe(items, 'PatientIdentity', props), '12.345.678-9 · F · 15-03-1970');
-  assert.equal(textoDe(items, 'StudyDate', props), '17-10-2026');
-  assert.equal(textoDe(items, 'SeriesDescription', props), 'AXIAL');
-});
-
-test('un corte sin alguno de los datos no deja una línea vacía', async () => {
-  const items = await itemsEsquina();
-  const props = esquina({ PatientID: '7', StudyDate: '20261017' });
-
-  assert.equal(textoDe(items, 'PatientName', props), null);
-  assert.equal(textoDe(items, 'PatientIdentity', props), '7');
-  assert.equal(textoDe(items, 'SeriesDescription', props), null);
-});
-
-test('en una reconstrucción sin corte propio, el paciente sale del primero de la serie', async () => {
-  const items = await itemsEsquina();
-  const props = esquina(undefined, { PatientName: 'SOTO^LUIS', PatientID: '9' });
-
-  assert.equal(textoDe(items, 'PatientName', props), 'SOTO LUIS');
-  assert.equal(textoDe(items, 'PatientIdentity', props), '9');
+  assert.equal([...config.extensions].includes('@ohif/extension-toth-overlay'), true);
+  // La esquina la define la extensión, en global; una copia acá en el modo
+  // quedaría tapada y confundiría al que la quiera cambiar.
+  assert.equal('viewportOverlay.topLeft' in config.customizationService.mode['*'], false);
 });

@@ -73,6 +73,11 @@
       "version": "3.0.0"
     },
     {
+      "packageName": "@ohif/extension-toth-overlay",
+      "default": false,
+      "version": "3.0.0"
+    },
+    {
       "packageName": "@ohif/extension-cornerstone-dicom-rt",
       "default": false,
       "version": "3.0.0"

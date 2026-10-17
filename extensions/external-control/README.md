@@ -161,6 +161,37 @@ at 80 % of the cache — the rest load on demand, as they would have — and
 REMOVE_STUDIES cancels what is still pending. `GET_SESSION_STATE` reports
 `prefetch: {total, loaded, failed, skipped}` per study.
 
+### Several screens
+
+On a workstation where `multimonitor` spreads the viewer over two or three
+windows, each window is a session of its own: a study pushed into one is
+unknown to the others. The host talks to a single window — the one it opened,
+which `MultiMonitorService` numbers as screen 0 — and without more, the other
+screens would stay on whatever study they opened with. A radiologist reading
+patient B on the first screen with patient A's series still up on the second
+is the one mistake this must not allow, so the extension keeps the screens
+together on its own, with nothing new for the host to do:
+
+- The **lead** (screen 0) watches its own grid. Whenever the study in its
+  active viewport changes — because the host hung another one, or the
+  radiologist clicked a thumbnail — it tells every other open screen to
+  `followStudy` it, passing the manifest URL along when the study came with
+  one.
+- Each other screen hangs that study **the way it opened**: with the
+  `hangingProtocolId` (and `stageId`) in its own URL, or OHIF's own choice
+  without one. A stage that places none of the study's images leaves the
+  screen empty rather than keeping the previous study up.
+- A screen that opens later — launched by the lead, or re-opened after the
+  browser blocked it — asks its opener what it is showing and catches up,
+  instead of trusting the study in the URL it was launched with, which is the
+  one the lead opened with hours ago.
+- `REMOVE_STUDIES` reaches every screen too, so a study the radiologist is
+  done with leaves all of them.
+
+Only the lead pushes. What a radiologist does on a second screen stays
+there; the patient header and the viewport overlays of each window say what
+that window shows.
+
 ## Known gaps
 
 - `DicomMetadataStore` has no removal API, so `REMOVE_STUDIES` frees the display

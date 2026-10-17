@@ -77,6 +77,56 @@ export function buildHandlers({ commandsManager, allowRunCommands = false }) {
 
 let channel: ExternalControlChannel | undefined;
 
+/** Undoes what onModeEnter wired for the screens, if anything. */
+let stopScreens: (() => void) | undefined;
+
+/**
+ * A grid change settles in several events — a layout, then each viewport —
+ * and only the last one says what is on screen. Short enough that the other
+ * screens change with this one, long enough to pass each change on once.
+ */
+const SCREENS_SETTLE_MS = 200;
+
+/**
+ * Keep the screens of a workstation on the same study.
+ *
+ * The lead — the window the host opened — passes on the study its active
+ * viewport shows whenever the grid changes; every other window catches up
+ * with the lead when it opens. See `syncScreens` and `followLeadScreen`.
+ */
+function startScreens({ servicesManager, commandsManager }) {
+  const { viewportGridService, multiMonitorService } = servicesManager.services;
+  if (!multiMonitorService?.isMultimonitor || !(multiMonitorService.numberOfScreens > 1)) {
+    return undefined;
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const sync = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      try {
+        commandsManager.runCommand('syncScreens');
+      } catch (error) {
+        console.warn('[external-control] no se pudo sincronizar las pantallas:', error);
+      }
+    }, SCREENS_SETTLE_MS);
+  };
+  const subscriptions = [
+    viewportGridService.subscribe(viewportGridService.EVENTS.GRID_STATE_CHANGED, sync),
+    viewportGridService.subscribe(viewportGridService.EVENTS.ACTIVE_VIEWPORT_ID_CHANGED, sync),
+  ];
+
+  // Not awaited: a window that cannot reach its lead is still a viewer.
+  Promise.resolve(commandsManager.runAsync('followLeadScreen')).catch(error => {
+    console.warn('[external-control] esta pantalla no pudo seguir a la principal:', error);
+  });
+
+  return () => {
+    clearTimeout(timer);
+    subscriptions.forEach(subscription => subscription.unsubscribe());
+  };
+}
+
 const externalControlExtension = {
   id,
 
@@ -99,6 +149,16 @@ const externalControlExtension = {
     if (channel.isEnabled) {
       console.log('[external-control] escuchando a:', settings.allowedOrigins.join(', '));
     }
+  },
+
+  onModeEnter({ servicesManager, commandsManager }) {
+    stopScreens?.();
+    stopScreens = startScreens({ servicesManager, commandsManager });
+  },
+
+  onModeExit() {
+    stopScreens?.();
+    stopScreens = undefined;
   },
 
   getCommandsModule,

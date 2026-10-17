@@ -10,6 +10,7 @@ import { DicomMetadataStore } from '@ohif/core';
 import { ErrorCodes, ExternalControlError } from './protocol';
 import purgeDisplaySetImages from './purgeDisplaySetImages';
 import { cancelStudyPrefetch, prefetchStudy, studyPrefetchProgress } from './prefetchStudyImages';
+import { isLeadScreen, otherScreens, shownStudy, windowProtocol } from './screens';
 
 /** Series that are not images to read: reports, presentation states, key objects. */
 const NON_IMAGE_MODALITIES = new Set(['SR', 'PR', 'KO']);
@@ -132,11 +133,33 @@ export function assertReloadUrl(url: unknown): string {
 }
 
 function getCommandsModule({ servicesManager, commandsManager, extensionManager }: withAppTypes) {
-  const { displaySetService, hangingProtocolService, viewportGridService, customizationService } =
-    servicesManager.services;
+  const {
+    displaySetService,
+    hangingProtocolService,
+    viewportGridService,
+    customizationService,
+    multiMonitorService,
+  } = servicesManager.services;
 
   const allowedManifestOrigins: string[] =
     extensionManager?.appConfig?.externalControl?.allowedManifestOrigins ?? [];
+
+  /**
+   * The manifest each study came with, when it came with one. Another screen
+   * that has to load the same study needs it too: a manifest-driven data
+   * source cannot be asked for a study it was never pointed at.
+   */
+  const manifestUrls = new Map<string, string>();
+
+  /** The study last passed on to the other screens, so each change goes once. */
+  let lastPushedStudy: string | null = null;
+
+  /**
+   * Follows run one after another. The lead can push two studies in quick
+   * succession, and a follow that empties the grid while the previous one is
+   * still hanging would leave the screen on whichever finished last.
+   */
+  let followChain: Promise<unknown> = Promise.resolve();
 
   function activeDataSource() {
     const [dataSource] = extensionManager.getActiveDataSource();
@@ -467,6 +490,103 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
     });
   }
 
+  /**
+   * The other viewer windows of this workstation, with a commands manager to
+   * run things in. `MultiMonitorService` keeps the windows it launched — or
+   * re-attached to by name — on `window.multimonitor`; a window not launched
+   * by this one, or closed since, is not there to reach.
+   */
+  function reachableScreens() {
+    const launched = (window as unknown as { multimonitor?: { launchWindows?: Window[] } })
+      .multimonitor?.launchWindows;
+    return otherScreens(launched, window).filter(({ window: other }) => {
+      try {
+        return Boolean(
+          (other as unknown as { multimonitor?: { commandsManager?: unknown } }).multimonitor
+            ?.commandsManager
+        );
+      } catch {
+        return false; // navigated away from the viewer: cross-origin now
+      }
+    });
+  }
+
+  /**
+   * Run a command in every other screen, without waiting for any of them: a
+   * screen that is slow, blocked or mid-load must not hold up the answer to
+   * the host, and the host did not ask about the other screens anyway.
+   */
+  function forwardToScreens(commandName: string, payload: Record<string, unknown>): number {
+    const screens = reachableScreens();
+    for (const { screenNumber, window: other } of screens) {
+      try {
+        const manager = (other as unknown as { multimonitor: { commandsManager } }).multimonitor
+          .commandsManager;
+        Promise.resolve(manager.runAsync(commandName, payload)).catch(error => {
+          console.warn(`[external-control] pantalla ${screenNumber}: ${commandName} falló:`, error);
+        });
+      } catch (error) {
+        console.warn(`[external-control] pantalla ${screenNumber} inalcanzable:`, error);
+      }
+    }
+    return screens.length;
+  }
+
+  /**
+   * Resolves once the grid has been quiet for a moment.
+   *
+   * A window entering the mode hangs the study in its URL in two passes —
+   * once with the series the protocol needs, again when the rest arrive —
+   * and the first pass is what makes the session look ready. A follow that
+   * acted right then would be undone by the second pass. Nothing announces
+   * that the mode is done, so the only honest signal is silence.
+   */
+  function whenGridSettles(quietMs = 300, maxMs = 5000): Promise<void> {
+    return new Promise(resolve => {
+      let quiet: ReturnType<typeof setTimeout>;
+      const finish = () => {
+        clearTimeout(quiet);
+        clearTimeout(cap);
+        subscription.unsubscribe();
+        resolve();
+      };
+      const restart = () => {
+        clearTimeout(quiet);
+        quiet = setTimeout(finish, quietMs);
+      };
+      const subscription = viewportGridService.subscribe(
+        viewportGridService.EVENTS.GRID_STATE_CHANGED,
+        restart
+      );
+      const cap = setTimeout(finish, maxMs);
+      restart();
+    });
+  }
+
+  /** The study this window is on, by the same rule as the patient header. */
+  function studyOnScreen(): string | null {
+    const grid = gridState();
+    return shownStudy({
+      activeViewportId: grid?.activeViewportId,
+      viewports: grid?.viewports,
+      displaySetStudy: uid => displaySetService.getDisplaySetByUID(uid)?.StudyInstanceUID,
+      activeStudyUID: hangingProtocolService.getState()?.activeStudyUID,
+    });
+  }
+
+  /** Whether some viewport of this window shows a series of the study. */
+  function studyIsOnScreen(StudyInstanceUID: string): boolean {
+    let shown = false;
+    gridState()?.viewports?.forEach(viewport => {
+      (viewport.displaySetInstanceUIDs ?? []).forEach(uid => {
+        if (displaySetService.getDisplaySetByUID(uid)?.StudyInstanceUID === StudyInstanceUID) {
+          shown = true;
+        }
+      });
+    });
+    return shown;
+  }
+
   const actions = {
     /**
      * Make studies available in the running session, without a reload.
@@ -501,6 +621,9 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
         // URL still goes through the data source's own origin policy.
         if (url && typeof dataSource.initialize === 'function') {
           await dataSource.initialize({ url: assertManifestAllowed(url, allowedManifestOrigins) });
+        }
+        if (url) {
+          manifestUrls.set(StudyInstanceUID, url);
         }
 
         if (!displaySetsForStudy(StudyInstanceUID).length) {
@@ -934,10 +1057,18 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
      * Viewports are emptied before the display sets go, otherwise the grid is
      * left holding UIDs that no longer resolve.
      */
-    removeStudies: async ({ studies }) => {
+    removeStudies: async ({ studies, propagate = true }) => {
       const entries = normalizeStudies(studies);
       if (!entries.length) {
         throw new ExternalControlError(ErrorCodes.BAD_REQUEST, 'no se indicó ningún estudio');
+      }
+
+      // The other screens hold their own copy of the study; a study the
+      // radiologist is done with has to leave every one of them. Each screen
+      // picks its own replacement, and the lead's next grid change puts them
+      // back on whatever it is showing.
+      if (propagate) {
+        forwardToScreens('removeStudies', { studies: entries, propagate: false });
       }
 
       const removed: string[] = [];
@@ -1058,7 +1189,141 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
         studies: [...studies.values()],
       };
     },
+
+    // ── Several screens ──────────────────────────────────────────────────
+    //
+    // On a multi-monitor workstation every screen is a viewer window of its
+    // own, with its own session: the host talks to one of them — the lead,
+    // the window it opened — and the others would otherwise stay on whatever
+    // study they opened with. A radiologist reading patient B on the first
+    // screen with patient A's series still up on the second is the one
+    // mistake a viewer must not make possible, so the lead passes on the
+    // study it is showing, and each other screen hangs it the way it opened.
+
+    /** What this window is showing, for another screen to follow. */
+    getShownStudy: () => {
+      const StudyInstanceUID = studyOnScreen();
+      return {
+        StudyInstanceUID,
+        ...(StudyInstanceUID && manifestUrls.has(StudyInstanceUID)
+          ? { url: manifestUrls.get(StudyInstanceUID) }
+          : {}),
+      };
+    },
+
+    /**
+     * Show a study in this window the way the window opened: with the
+     * hanging protocol its URL names, or the one OHIF picks. Loads the study
+     * first if this session does not have it.
+     *
+     * Not the same as SET_HANGING_PROTOCOL: a stage that places none of the
+     * study's images leaves the screen empty rather than keeping the previous
+     * study up — an empty second monitor is honest, the wrong patient is not.
+     */
+    followStudy: ({ StudyInstanceUID, url }) => {
+      if (typeof StudyInstanceUID !== 'string' || !StudyInstanceUID) {
+        throw new ExternalControlError(ErrorCodes.BAD_REQUEST, 'falta StudyInstanceUID');
+      }
+      const next = followChain.then(
+        () => follow({ StudyInstanceUID, url }),
+        () => follow({ StudyInstanceUID, url })
+      );
+      followChain = next;
+      return next;
+    },
+
+    /**
+     * Put every other screen on the study this window is showing. Run by the
+     * lead whenever its grid changes; a change that is not a change of study
+     * — a scroll, a new layout of the same study — passes nothing on.
+     */
+    syncScreens: ({ force = false } = {}) => {
+      if (!isLeadScreen(multiMonitorService?.screenNumber)) {
+        return { lead: false, pushed: null, screens: 0 };
+      }
+      const StudyInstanceUID = studyOnScreen();
+      if (!StudyInstanceUID || (!force && StudyInstanceUID === lastPushedStudy)) {
+        return { lead: true, pushed: null, screens: 0 };
+      }
+      lastPushedStudy = StudyInstanceUID;
+      const screens = forwardToScreens('followStudy', actions.getShownStudy());
+      return { lead: true, pushed: StudyInstanceUID, screens };
+    },
+
+    /**
+     * For a screen that is not the lead, on opening: catch up with what the
+     * lead is showing. The window was launched from the lead's URL, which
+     * names the study the lead opened with — not the one it is on now, which
+     * on a workstation that has been running all shift is a different
+     * patient. The lead is this window's opener, on the same origin.
+     */
+    followLeadScreen: async () => {
+      if (isLeadScreen(multiMonitorService?.screenNumber)) {
+        return { followed: null, reason: 'lead' };
+      }
+      let manager;
+      try {
+        manager = (window.opener as unknown as { multimonitor?: { commandsManager? } } | null)
+          ?.multimonitor?.commandsManager;
+      } catch {
+        manager = undefined; // the opener is not a viewer of this origin
+      }
+      if (!manager) {
+        return { followed: null, reason: 'no-lead' };
+      }
+      const shown = await manager.runAsync('getShownStudy');
+      if (!shown?.StudyInstanceUID) {
+        return { followed: null, reason: 'lead-empty' };
+      }
+      await actions.followStudy(shown);
+      return { followed: shown.StudyInstanceUID };
+    },
   };
+
+  /** The work of `followStudy`, one at a time. */
+  async function follow({ StudyInstanceUID, url }: { StudyInstanceUID: string; url?: string }) {
+    if (isEmptyViewer()) {
+      await enterModeWith({ StudyInstanceUID, url });
+    }
+    await whenSessionReady();
+    await whenGridSettles();
+    if (!displaySetsForStudy(StudyInstanceUID).length) {
+      await actions.addStudies({ studies: [{ StudyInstanceUID, url }], focus: false });
+    }
+    const study = DicomMetadataStore.getStudy(StudyInstanceUID);
+    if (!study) {
+      throw new ExternalControlError(
+        ErrorCodes.NOT_FOUND,
+        `el estudio ${StudyInstanceUID} no está en esta pantalla`
+      );
+    }
+    // Already on it: leave the radiologist's zoom and pan alone.
+    if (
+      hangingProtocolService.getState()?.activeStudyUID === StudyInstanceUID &&
+      studyIsOnScreen(StudyInstanceUID)
+    ) {
+      return { StudyInstanceUID, unchanged: true };
+    }
+
+    const { protocolId, stageId } = windowProtocol(window.location.search);
+    const protocol = protocolId ? findProtocol(protocolId) : undefined;
+    hangingProtocolService.addStudy(study);
+    hangingProtocolService.setActiveStudyUID(StudyInstanceUID);
+    await clearViewports();
+    const input = { activeStudy: study, displaySets: displaySetService.getActiveDisplaySets() };
+    if (protocol) {
+      hangingProtocolService.run(input, protocol.id, stageId ? { stageId } : {});
+    } else {
+      hangingProtocolService.run(input);
+    }
+    const state = hangingProtocolService.getState();
+    return {
+      StudyInstanceUID,
+      protocolId: state?.protocolId ?? null,
+      stageIndex: state?.stageIndex ?? null,
+      filled: filledViewports(),
+    };
+  }
 
   return {
     definitions: {
@@ -1071,6 +1336,11 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
       setHangingProtocol: { commandFn: actions.setHangingProtocol },
       reloadViewerSession: { commandFn: actions.reloadViewerSession },
       getSessionState: { commandFn: actions.getSessionState },
+      // Between screens of one workstation; not reachable from the host.
+      getShownStudy: { commandFn: actions.getShownStudy },
+      followStudy: { commandFn: actions.followStudy },
+      syncScreens: { commandFn: actions.syncScreens },
+      followLeadScreen: { commandFn: actions.followLeadScreen },
     },
     defaultContext: 'DEFAULT',
   };

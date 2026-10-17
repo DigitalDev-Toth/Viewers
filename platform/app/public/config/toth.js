@@ -427,13 +427,28 @@
     herramienta('PlanarFreehandROI', 'Lápiz', ['d']),
     herramienta('Probe', 'Punto', ['p']),
     herramienta('Crosshairs', 'Cruz de MPR', ['y']),
-    { commandName: 'flipViewportHorizontal', label: 'Voltear horizontal', keys: ['h'], isEditable: true },
-    { commandName: 'flipViewportVertical', label: 'Voltear vertical', keys: ['v'], isEditable: true },
+    {
+      commandName: 'flipViewportHorizontal',
+      label: 'Voltear horizontal',
+      keys: ['h'],
+      isEditable: true,
+    },
+    {
+      commandName: 'flipViewportVertical',
+      label: 'Voltear vertical',
+      keys: ['v'],
+      isEditable: true,
+    },
 
     // Las acciones de OHIF que Horos desplazó, en la misma letra con Shift.
     { commandName: 'invertViewport', label: 'Invertir', keys: ['shift+i'], isEditable: true },
     { commandName: 'rotateViewportCW', label: 'Rotar a la derecha', keys: ['r'], isEditable: true },
-    { commandName: 'rotateViewportCCW', label: 'Rotar a la izquierda', keys: ['shift+r'], isEditable: true },
+    {
+      commandName: 'rotateViewportCCW',
+      label: 'Rotar a la izquierda',
+      keys: ['shift+r'],
+      isEditable: true,
+    },
     { commandName: 'toggleCine', label: 'Cine', keys: ['shift+c'] },
     herramienta('CircularEraser', 'Borrador', ['shift+e']),
     { commandName: 'addNewSegment', label: 'Nuevo segmento', keys: ['shift+a'], isEditable: true },
@@ -441,9 +456,24 @@
     // El resto, como viene en OHIF.
     { commandName: 'scaleUpViewport', label: 'Acercar', keys: ['+'], isEditable: true },
     { commandName: 'scaleDownViewport', label: 'Alejar', keys: ['-'], isEditable: true },
-    { commandName: 'fitViewportToWindow', label: 'Ajustar a la ventana', keys: ['='], isEditable: true },
-    { commandName: 'incrementActiveViewport', label: 'Viewport siguiente', keys: ['right'], isEditable: true },
-    { commandName: 'decrementActiveViewport', label: 'Viewport anterior', keys: ['left'], isEditable: true },
+    {
+      commandName: 'fitViewportToWindow',
+      label: 'Ajustar a la ventana',
+      keys: ['='],
+      isEditable: true,
+    },
+    {
+      commandName: 'incrementActiveViewport',
+      label: 'Viewport siguiente',
+      keys: ['right'],
+      isEditable: true,
+    },
+    {
+      commandName: 'decrementActiveViewport',
+      label: 'Viewport anterior',
+      keys: ['left'],
+      isEditable: true,
+    },
     {
       commandName: 'updateViewportDisplaySet',
       commandOptions: { direction: -1 },
@@ -458,8 +488,20 @@
       keys: ['pagedown'],
       isEditable: true,
     },
-    { commandName: 'nextStage', context: 'DEFAULT', label: 'Etapa siguiente', keys: ['.'], isEditable: true },
-    { commandName: 'previousStage', context: 'DEFAULT', label: 'Etapa anterior', keys: [','], isEditable: true },
+    {
+      commandName: 'nextStage',
+      context: 'DEFAULT',
+      label: 'Etapa siguiente',
+      keys: ['.'],
+      isEditable: true,
+    },
+    {
+      commandName: 'previousStage',
+      context: 'DEFAULT',
+      label: 'Etapa anterior',
+      keys: [','],
+      isEditable: true,
+    },
     { commandName: 'nextImage', label: 'Imagen siguiente', keys: ['down'], isEditable: true },
     { commandName: 'previousImage', label: 'Imagen anterior', keys: ['up'], isEditable: true },
     { commandName: 'firstImage', label: 'Primera imagen', keys: ['home'], isEditable: true },
@@ -505,6 +547,73 @@
     herramienta('CircularBrush', 'Pincel', ['b']),
   ];
 
+  // ─── Datos del paciente en cada cuadro ─────────────────────────────────
+  //
+  // Lo que OHIF pone arriba a la izquierda de cada viewport es la fecha del
+  // estudio y la descripción de la serie; el paciente va sólo en la cabecera.
+  // En un puesto donde el RIS encola varios pacientes en el mismo visor y
+  // donde el visor son dos o tres ventanas, eso no alcanza: el radiólogo
+  // mira una imagen, no una cabecera, y la cabecera de la ventana de al lado
+  // no la ve. Cada imagen lleva entonces, arriba del todo, el nombre, el
+  // identificador, el sexo y la fecha de nacimiento del paciente, y recién
+  // debajo lo de siempre.
+  //
+  // `instance` es el corte que se ve; `referenceInstance`, el primero de la
+  // serie. Los datos del paciente son los mismos en los dos, pero el primero
+  // puede faltar en una reconstrucción (MPR), así que se mira uno y el otro.
+
+  const dato = (props, nombre) => {
+    const instancia = props.instance || props.referenceInstance;
+    return instancia ? instancia[nombre] : undefined;
+  };
+
+  const ESQUINA_SUPERIOR_IZQUIERDA = [
+    {
+      id: 'PatientName',
+      inheritsFrom: 'ohif.overlayItem',
+      label: '',
+      title: 'Paciente',
+      condition: props => Boolean(dato(props, 'PatientName')),
+      contentF: props => props.formatters.formatPN(dato(props, 'PatientName')),
+    },
+    {
+      id: 'PatientIdentity',
+      inheritsFrom: 'ohif.overlayItem',
+      label: '',
+      title: 'Identificador, sexo y nacimiento',
+      condition: props =>
+        Boolean(
+          dato(props, 'PatientID') || dato(props, 'PatientSex') || dato(props, 'PatientBirthDate')
+        ),
+      contentF: props =>
+        [
+          dato(props, 'PatientID'),
+          dato(props, 'PatientSex'),
+          dato(props, 'PatientBirthDate')
+            ? props.formatters.formatDate(dato(props, 'PatientBirthDate'))
+            : undefined,
+        ]
+          .filter(Boolean)
+          .join(' · '),
+    },
+    {
+      id: 'StudyDate',
+      inheritsFrom: 'ohif.overlayItem',
+      label: '',
+      title: 'Fecha del estudio',
+      condition: props => Boolean(dato(props, 'StudyDate')),
+      contentF: props => props.formatters.formatDate(dato(props, 'StudyDate')),
+    },
+    {
+      id: 'SeriesDescription',
+      inheritsFrom: 'ohif.overlayItem',
+      label: '',
+      title: 'Descripción de la serie',
+      condition: props => Boolean(dato(props, 'SeriesDescription')),
+      contentF: props => dato(props, 'SeriesDescription'),
+    },
+  ];
+
   /** @returns {AppTypes.Config} */
   function baseConfig() {
     return {
@@ -523,6 +632,11 @@
             // muestra arriba el paciente en pantalla y abajo, aparte, la cola.
             'studyBrowser.groupByPatient': { $set: true },
             'ohif.hotkeyBindings': { $set: ATAJOS },
+            // Quién es el paciente, en la esquina de cada imagen. Con varios
+            // pacientes en la misma sesión y el visor repartido en dos o tres
+            // ventanas, la cabecera de una ventana no dice nada de las otras:
+            // cada cuadro tiene que decir de quién es, como en Horos.
+            'viewportOverlay.topLeft': { $set: ESQUINA_SUPERIOR_IZQUIERDA },
           },
         },
       },

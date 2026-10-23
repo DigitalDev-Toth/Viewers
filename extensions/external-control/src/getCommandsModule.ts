@@ -926,7 +926,7 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
      * Hang a study with a given protocol and stage, or — without protocolId —
      * go back to the one OHIF picks on its own.
      */
-    setHangingProtocol: async ({ StudyInstanceUID, protocolId, stageId }) => {
+    setStudyHangingProtocol: async ({ StudyInstanceUID, protocolId, stageId }) => {
       if (typeof StudyInstanceUID !== 'string' || !StudyInstanceUID) {
         throw new ExternalControlError(ErrorCodes.BAD_REQUEST, 'falta StudyInstanceUID');
       }
@@ -1333,7 +1333,9 @@ function getCommandsModule({ servicesManager, commandsManager, extensionManager 
       focusStudy: { commandFn: actions.focusStudy },
       setViewerLayout: { commandFn: actions.setViewerLayout },
       getHangingProtocols: { commandFn: actions.getHangingProtocols },
-      setHangingProtocol: { commandFn: actions.setHangingProtocol },
+      // Not `setHangingProtocol`: that name is OHIF's own, and the toolbar's
+      // MPR and layout buttons run it without a study.
+      setStudyHangingProtocol: { commandFn: actions.setStudyHangingProtocol },
       reloadViewerSession: { commandFn: actions.reloadViewerSession },
       getSessionState: { commandFn: actions.getSessionState },
       // Between screens of one workstation; not reachable from the host.

@@ -14,7 +14,10 @@ options:
 substitutions:
   _REGION: southamerica-west1
   _SERVICE: ohif-viewer
-  _RELAY_BASE: https://relay.cui.date
+  # El relay por la red interna (VM relays-cuidate), no por relay.cui.date: cada
+  # imagen pasaba dos veces por el balanceador (relay → Cloud Run → navegador)
+  # y las dos se pagaban como egress. Requiere la salida a la VPC de abajo.
+  _RELAY_BASE: http://192.168.0.8:8080
   _PUBLIC_ORIGIN: https://ohif.cui.date
 
 steps:
@@ -54,9 +57,16 @@ steps:
       # dejan de abrir.
       - --set-secrets=RELAY_REQUEST_TOKEN=relay-request-token:latest,MIRROR_LINK_SECRETS=mirror-link-secrets:latest
       - --set-env-vars=RELAY_BASE=$_RELAY_BASE,PUBLIC_ORIGIN=$_PUBLIC_ORIGIN
+      # Salida directa a la VPC (igual que mirror-viewer) para llegar al relay
+      # por IP interna; el resto del tráfico sigue saliendo por internet.
+      - --network=network-cuidate2
+      - --subnet=cuidate-run-egress
+      - --vpc-egress=private-ranges-only
       # Los estudios grandes tardan: el primer /ohif de un estudio sin
-      # geometría persistida lee cabeceras antes de responder.
-      - --timeout=300
+      # geometría persistida lee cabeceras antes de responder, y las
+      # tomosíntesis de mamografía (300-770 MB por instancia, sodiagma) no
+      # alcanzaban a bajar en 300 s: el visor mostraba "Something went wrong".
+      - --timeout=3600
       # El proxy sólo reenvía bytes, pero el streaming de DICOM mantiene
       # muchas conexiones abiertas a la vez.
       - --concurrency=80

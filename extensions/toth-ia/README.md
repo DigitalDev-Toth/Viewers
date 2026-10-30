@@ -41,6 +41,34 @@ servidor del visor ──POST JPEG──▶ ia-caderas (Supermicro, iaTunning/sc
 - Volver a apretar el botón sobre la misma imagen reemplaza los ángulos de la
   IA, no los suma.
 
+## Correcciones del radiólogo
+
+Lo que el radiólogo corrige es lo que más sirve para entrenar: puntos de
+experto sobre imágenes del centro. `src/correcciones.ts` las manda solas:
+
+```
+navegador ──POST /api/ia/caderas/correccion?<query de la medición>  {anotacion, cadera, mitad, modelo, puntos_ia, puntos}──▶ servidor del visor
+servidor del visor ──POST JSON a la misma ruta /ia/caderas──▶ ia-caderas, que lo anota en el Supermicro
+```
+
+- Cornerstone avisa en cada paso del arrastre, así que cada ángulo se manda
+  2 s después de su último movimiento (o al cerrar o cambiar de estudio, con
+  `keepalive`), y sólo si algún punto se movió más de medio píxel desde lo
+  último enviado. Deshacer también cuenta.
+- El servicio anota cada envío; al entrenar vale el último de cada imagen y
+  cadera (`iaTunning/scripts/correcciones_caderas.py`). Si el radiólogo lo
+  devuelve a donde lo puso la IA, queda como confirmado.
+- Sólo los ángulos que creó el botón: de uno dibujado a mano no se sabe qué
+  mide. Borrar no se anota, porque cerrar el estudio también borra.
+- Van los UID de la imagen (para volver a pedirla al entrenar), el centro y
+  los puntos; nunca datos del paciente. Quedan en el Supermicro
+  (`/mnt/data/ia/datasets/caderas-correcciones`). No se sabe qué radiólogo
+  corrigió: el enlace no lo dice.
+- El relay sólo tunela `/ia/caderas`, así que la corrección va por ahí mismo
+  y el servicio la distingue por el content-type: no hizo falta tocar el relay.
+- Si el envío falla, no se avisa al radiólogo: se reintenta con el próximo
+  movimiento.
+
 ## Probar en local
 
 ```bash
@@ -56,16 +84,13 @@ APP_CONFIG=config/toth.js pnpm dev
 
 Tests: `node --test toth/*.test.mjs` y `npx jest` en esta carpeta.
 
-## Para producción (pendiente)
+## En producción
 
-1. **Unidad systemd** en el Supermicro: `iaTunning/servicios/ia-caderas.service`
-   (`systemctl --user link … && systemctl --user enable --now ia-caderas`).
-2. **Túnel**: el relay declara cada ruta `/ia/*` por separado; falta
-   `POST /ia/caderas` en `dicom-relay/main.py` (como `/ia/transcribir`, con
-   `forward_content_length` y un tope de tamaño). El conector del Supermicro
-   (`iaTunning/scripts/conector_relay.py`) reenvía todo a un solo `UPSTREAM`
-   (Parakeet, 8095): hace falta un segundo conector con otro nombre de nodo
-   hacia `http://127.0.0.1:8096`, o repartir por ruta.
-3. **Servidor del visor** (Cloud Run): `IA_CADERAS_URL=https://relay.cui.date/ia/caderas?client=<nodo>`
-   y `IA_CADERAS_TOKEN` desde Secret Manager. Sin `IA_CADERAS_URL` el botón
+1. **Servicio** en el Supermicro (GPU1): `iaTunning/servicios/ia-caderas.service`.
+2. **Túnel**: `POST /ia/caderas` en `dicom-relay/main.py`; el conector del
+   Supermicro (`iaTunning/scripts/conector_relay.py`, `ConectorPorRuta`)
+   manda esa ruta a `http://127.0.0.1:8096`.
+3. **Servidor del visor** (Cloud Run, `toth/cloudbuild.yaml`):
+   `IA_CADERAS_URL=$_RELAY_BASE/ia/caderas?client=$_IA_NODO` y
+   `IA_CADERAS_TOKEN` desde Secret Manager. Sin `IA_CADERAS_URL` el botón
    avisa que la medición no está configurada.

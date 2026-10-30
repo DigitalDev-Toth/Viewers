@@ -14,6 +14,15 @@
  *
  * Lo usan server.mjs (producción) y relay-proxy.mjs (desarrollo). Variables:
  *
+ * Las correcciones del radiólogo a esos ángulos (extensions/toth-ia/src/correcciones.ts)
+ * vuelven por
+ *
+ *   POST /api/ia/caderas/correccion?<la misma query>   cuerpo JSON
+ *
+ * y siguen el mismo camino hacia el servicio, que las anota para entrenar. El
+ * relay sólo tiene la ruta /ia/caderas, así que van ahí mismo: el servicio las
+ * distingue de una RX por el content-type.
+ *
  *   IA_CADERAS_URL    sin ella la ruta responde 503. En desarrollo, el servicio
  *                     en la LAN: http://10.10.10.2:8096/ia/caderas. En
  *                     producción, el túnel del relay hacia el Supermicro
@@ -97,6 +106,96 @@ export function urlServicio(base, pedido) {
   return url.toString();
 }
 
+const ANOTACION_RE = /^[0-9a-f-]{8,64}$/i;
+const MODELO_RE = /^[A-Za-z0-9._-]{0,64}$/;
+export const CORRECCION_MAX_BYTES = 4096;
+
+/** Tres puntos [x, y] con números finitos y razonables para el tamaño del DICOM. */
+function tresPuntos(valor, pedido) {
+  const margen = Math.max(pedido.filas, pedido.columnas);
+  const dentro = n => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= 2 * margen;
+  if (
+    !Array.isArray(valor) ||
+    valor.length !== 3 ||
+    !valor.every(p => Array.isArray(p) && p.length === 2 && p.every(dentro))
+  ) {
+    return null;
+  }
+  return valor.map(p => p.map(n => Math.round(n * 100) / 100));
+}
+
+/**
+ * Valida una corrección: la query como la de una medición y el cuerpo con
+ * forma conocida. Devuelve `{ pedido, correccion }` o `{ status, message }`.
+ * La corrección se rearma campo por campo: al servicio no llega nada que no
+ * esté acá.
+ */
+export function parseCorreccion(params, texto) {
+  const { pedido, status, message } = parsePedido(params);
+  if (!pedido) {
+    return { status, message };
+  }
+  let c;
+  try {
+    c = JSON.parse(texto);
+  } catch {
+    return { status: 400, message: 'el cuerpo no es JSON' };
+  }
+  if (!c || typeof c !== 'object') {
+    return { status: 400, message: 'el cuerpo no es JSON' };
+  }
+  if (!ANOTACION_RE.test(c.anotacion ?? '')) {
+    return { status: 400, message: 'anotacion inválida' };
+  }
+  if (!['derecha', 'izquierda'].includes(c.cadera) || !['izq', 'der'].includes(c.mitad)) {
+    return { status: 400, message: 'cadera inválida' };
+  }
+  if (!MODELO_RE.test(c.modelo ?? '')) {
+    return { status: 400, message: 'modelo inválido' };
+  }
+  const puntosIa = tresPuntos(c.puntos_ia, pedido);
+  const puntos = tresPuntos(c.puntos, pedido);
+  if (!puntosIa || !puntos) {
+    return { status: 400, message: 'puntos inválidos' };
+  }
+  return {
+    pedido,
+    correccion: {
+      centro: pedido.client,
+      studyUID: pedido.studyUID,
+      seriesUID: pedido.seriesUID,
+      objectUID: pedido.objectUID,
+      filas: pedido.filas,
+      columnas: pedido.columnas,
+      anotacion: c.anotacion.toLowerCase(),
+      cadera: c.cadera,
+      mitad: c.mitad,
+      modelo: c.modelo ?? '',
+      puntos_ia: puntosIa,
+      puntos,
+    },
+  };
+}
+
+/**
+ * El cuerpo de la petición como texto, o null si pasa de `max` bytes. Lo que
+ * sobra se lee y se bota, para poder responder por la misma conexión.
+ */
+export function leerCuerpo(req, max = CORRECCION_MAX_BYTES) {
+  return new Promise((resolve, reject) => {
+    const partes = [];
+    let total = 0;
+    req.on('data', parte => {
+      total += parte.length;
+      if (total <= max) {
+        partes.push(parte);
+      }
+    });
+    req.on('end', () => resolve(total > max ? null : Buffer.concat(partes).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
 const falla = (status, motivo) => ({ status, body: { ok: false, motivo } });
 
 /**
@@ -154,6 +253,37 @@ export async function medirCaderas(
       return { status: r.status, body };
     }
     return falla(502, `el servicio de IA respondió ${r.status}`);
+  } catch (err) {
+    return falla(err?.name === 'TimeoutError' ? 504 : 502, 'servicio de IA inalcanzable');
+  }
+}
+
+/**
+ * Manda una corrección ya validada al servicio, por el mismo camino que la
+ * medición. 200 `{ ok: true }` si quedó anotada; 502/503/504 si no.
+ */
+export async function guardarCorreccion(
+  pedido,
+  correccion,
+  { iaUrl, iaToken, fetchImpl = fetch, timeoutMs = 10000 }
+) {
+  if (!iaUrl) {
+    return falla(503, 'la medición con IA no está configurada en este visor');
+  }
+  try {
+    const r = await fetchImpl(urlServicio(iaUrl, pedido), {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(iaToken && { authorization: `Bearer ${iaToken}` }),
+      },
+      body: JSON.stringify(correccion),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (r.status !== 200) {
+      return falla(502, `el servicio de IA respondió ${r.status}`);
+    }
+    return { status: 200, body: { ok: true } };
   } catch (err) {
     return falla(err?.name === 'TimeoutError' ? 504 : 502, 'servicio de IA inalcanzable');
   }

@@ -39,7 +39,15 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
 
-import { configIa, enviarJson, medirCaderas, parsePedido } from './ia-caderas.mjs';
+import {
+  configIa,
+  enviarJson,
+  guardarCorreccion,
+  leerCuerpo,
+  medirCaderas,
+  parseCorreccion,
+  parsePedido,
+} from './ia-caderas.mjs';
 
 const PORT = Number(process.env.PROXY_PORT ?? 3001);
 const RELAY = new URL(process.env.RELAY_BASE ?? 'https://relay.cui.date');
@@ -83,6 +91,7 @@ const ALLOWED = [
   /^\/study\/[^/]+$/,
   /^\/study\/[^/]+\/ohif$/,
   /^\/ia\/caderas$/,
+  /^\/ia\/caderas\/correccion$/,
 ];
 
 if (!TOKEN && RELAY.protocol === 'https:') {
@@ -126,6 +135,24 @@ const server = http.createServer((req, res) => {
     medirCaderas(pedido, { relayBase: RELAY.origin, relayToken: TOKEN, ...configIa() }).then(r =>
       enviarJson(res, r, cors)
     );
+    return;
+  }
+
+  if (pathname === '/ia/caderas/correccion') {
+    const cors = { 'Access-Control-Allow-Origin': ORIGIN };
+    leerCuerpo(req)
+      .catch(() => null)
+      .then(texto => {
+        const { pedido, correccion, status, message } =
+          texto === null
+            ? { status: 413, message: 'corrección demasiado grande' }
+            : parseCorreccion(params, texto);
+        if (!correccion) {
+          enviarJson(res, { status, body: { ok: false, motivo: message } }, cors);
+          return;
+        }
+        guardarCorreccion(pedido, correccion, configIa()).then(r => enviarJson(res, r, cors));
+      });
     return;
   }
 

@@ -29,6 +29,7 @@ test('sólo se exponen las rutas que el visor usa', () => {
   assert.ok(matchApiRoute(`/study/${ESTUDIO}`));
   assert.ok(matchApiRoute(`/study/${ESTUDIO}/ohif`));
   assert.ok(matchApiRoute('/ia/caderas'));
+  assert.ok(matchApiRoute('/ia/caderas/correccion'));
 
   // De /ia/* sólo la medición: /ia/informe y compañía son de otros productos.
   assert.equal(matchApiRoute('/ia/informe'), null);
@@ -87,6 +88,8 @@ test('medir con IA se acota al estudio del enlace, como una imagen', () => {
 
   assert.equal(authorizeApiRequest('/ia/caderas', propio, view), null);
   assert.equal(authorizeApiRequest('/ia/caderas', ajeno, view).status, 403);
+  assert.equal(authorizeApiRequest('/ia/caderas/correccion', propio, view), null);
+  assert.equal(authorizeApiRequest('/ia/caderas/correccion', ajeno, view).status, 403);
   assert.equal(authorizeApiRequest('/ia/caderas', propio, null).status, 401);
 });
 

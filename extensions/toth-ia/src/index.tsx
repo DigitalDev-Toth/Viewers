@@ -9,6 +9,7 @@
 
 import { ToolbarService } from '@ohif/core';
 
+import { escucharCorrecciones } from './correcciones';
 import { id } from './id.js';
 import { medirIndiceAcetabular } from './medirIndiceAcetabular';
 
@@ -39,6 +40,8 @@ function insertAfterMeasurementTools(buttonIds: string[] = []): string[] {
 
 const tothIaExtension = {
   id,
+
+  preRegistration: () => escucharCorrecciones(),
 
   getCommandsModule: ({ servicesManager }) => ({
     definitions: {

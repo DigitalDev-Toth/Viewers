@@ -12,7 +12,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { medirCaderas, parsePedido, urlServicio, wadoJpegPath } from './ia-caderas.mjs';
+import {
+  guardarCorreccion,
+  medirCaderas,
+  parseCorreccion,
+  parsePedido,
+  urlServicio,
+  wadoJpegPath,
+} from './ia-caderas.mjs';
 
 const ESTUDIO = '1.2.826.0.1.3680043.2.146.8.532.59015.2144600.10';
 const SERIE = '1.2.826.0.1.3680043.2.146.8.532.59015.2144600.11';
@@ -176,4 +183,111 @@ test('sin token del relay (dicom-index directo en la LAN) no manda cabecera', as
   await medirCaderas(pedido, opciones({ fetchImpl, relayToken: '' }));
 
   assert.equal(llamadas[0].opciones.headers.authorization, undefined);
+});
+
+// ── las correcciones ───────────────────────────────────────────────────────
+
+const CORRECCION = {
+  anotacion: '3f2b9c1e-8d4a-4b6e-9f00-1a2b3c4d5e6f',
+  cadera: 'derecha',
+  mitad: 'izq',
+  modelo: 'propio-v2',
+  puntos_ia: [
+    [100.123, 500],
+    [400, 520],
+    [250, 455],
+  ],
+  puntos: [
+    [100, 500],
+    [402.5, 521],
+    [251, 450.456],
+  ],
+};
+
+test('una corrección se rearma con los datos de la query y nada más', () => {
+  const texto = JSON.stringify({ ...CORRECCION, rut: '11.111.111-1', extra: { a: 1 } });
+  const { pedido, correccion } = parseCorreccion(q(valido), texto);
+
+  assert.equal(pedido.objectUID, OBJETO);
+  assert.equal(correccion.centro, 'csf');
+  assert.equal(correccion.studyUID, ESTUDIO);
+  assert.equal(correccion.filas, 2328);
+  assert.deepEqual(correccion.puntos_ia[0], [100.12, 500]);
+  assert.deepEqual(correccion.puntos[2], [251, 450.46]);
+  assert.equal(correccion.rut, undefined);
+  assert.equal(correccion.extra, undefined);
+});
+
+test('rechaza correcciones sin forma conocida', () => {
+  const casos = [
+    'no es json',
+    'null',
+    JSON.stringify({ ...CORRECCION, anotacion: '../x' }),
+    JSON.stringify({ ...CORRECCION, cadera: 'centro' }),
+    JSON.stringify({ ...CORRECCION, mitad: 'arriba' }),
+    JSON.stringify({ ...CORRECCION, modelo: 'a b' }),
+    JSON.stringify({ ...CORRECCION, puntos: CORRECCION.puntos.slice(0, 2) }),
+    JSON.stringify({
+      ...CORRECCION,
+      puntos: [
+        [1, 2],
+        [3, 'x'],
+        [5, 6],
+      ],
+    }),
+    JSON.stringify({
+      ...CORRECCION,
+      puntos_ia: [
+        [1, 2],
+        [3, 1e9],
+        [5, 6],
+      ],
+    }),
+  ];
+  for (const texto of casos) {
+    const r = parseCorreccion(q(valido), texto);
+    assert.equal(r.status, 400, texto);
+    assert.equal(r.correccion, undefined, texto);
+  }
+  assert.equal(
+    parseCorreccion(q({ ...valido, objectUID: 'x' }), JSON.stringify(CORRECCION)).status,
+    400
+  );
+});
+
+test('la corrección va al servicio como JSON, con su clave y la query del túnel', async () => {
+  const { pedido, correccion } = parseCorreccion(q(valido), JSON.stringify(CORRECCION));
+  const llamadas = [];
+  const fetchImpl = async (url, opciones) => {
+    llamadas.push({ url: String(url), opciones });
+    return respuesta(200, { ok: true });
+  };
+
+  const r = await guardarCorreccion(
+    pedido,
+    correccion,
+    opciones({ fetchImpl, iaUrl: 'https://relay.example/ia/caderas?client=supermicro' })
+  );
+
+  assert.equal(r.status, 200);
+  assert.equal(llamadas.length, 1);
+  const url = new URL(llamadas[0].url);
+  assert.equal(url.pathname, '/ia/caderas');
+  assert.equal(url.searchParams.get('client'), 'supermicro');
+  assert.equal(llamadas[0].opciones.headers['content-type'], 'application/json');
+  assert.equal(llamadas[0].opciones.headers.authorization, 'Bearer clave-ia');
+  assert.deepEqual(JSON.parse(llamadas[0].opciones.body), correccion);
+});
+
+test('si el servicio no la anota, el navegador lo sabe', async () => {
+  const { pedido, correccion } = parseCorreccion(q(valido), JSON.stringify(CORRECCION));
+  for (const [doble, esperado] of [
+    [() => respuesta(422, { ok: false }), 502],
+    [() => Promise.reject(new TypeError('fetch failed')), 502],
+  ]) {
+    const r = await guardarCorreccion(pedido, correccion, opciones({ fetchImpl: doble }));
+    assert.equal(r.status, esperado);
+  }
+  const sinServicio = await guardarCorreccion(pedido, correccion, opciones({ iaUrl: '' }));
+  assert.equal(sinServicio.status, 503);
 });

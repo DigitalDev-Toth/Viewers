@@ -7,6 +7,7 @@
 export type Punto = [number, number];
 export type Puntos = Record<'tcc_izq' | 'asm_izq' | 'tcc_der' | 'asm_der', Punto>;
 export type Mitad = 'izq' | 'der';
+export type Tres = [Punto, Punto, Punto];
 
 type Instancia = { Rows?: number; Columns?: number; PhotometricInterpretation?: string };
 
@@ -71,13 +72,13 @@ export function urlMedicion(
  * Hilgenreiner hacia afuera, un 25 % más que el techo, para que el ángulo se
  * vea abierto hacia lateral como se dibuja a mano.
  */
-export function angulosCaderas(p: Puntos): Record<Mitad, [Punto, Punto, Punto]> {
+export function angulosCaderas(p: Puntos): Record<Mitad, Tres> {
   const hx = p.tcc_der[0] - p.tcc_izq[0];
   const hy = p.tcc_der[1] - p.tcc_izq[1];
   const n = Math.hypot(hx, hy);
   const u: Punto = [hx / n, hy / n]; // hacia la derecha de la imagen
 
-  const uno = (tcc: Punto, asm: Punto, hacia: 1 | -1): [Punto, Punto, Punto] => {
+  const uno = (tcc: Punto, asm: Punto, hacia: 1 | -1): Tres => {
     const largo = 1.25 * Math.hypot(asm[0] - tcc[0], asm[1] - tcc[1]);
     const lateral: Punto = [tcc[0] + hacia * largo * u[0], tcc[1] + hacia * largo * u[1]];
     return [lateral, tcc, asm];
@@ -98,6 +99,24 @@ export function angulosCaderas(p: Puntos): Record<Mitad, [Punto, Punto, Punto]> 
 export function caderaDeLaIzquierda(orientacion: string | undefined): 'derecha' | 'izquierda' {
   const columnas = (orientacion ?? '').split('\\')[0].trim().toUpperCase();
   return columnas.startsWith('R') ? 'izquierda' : 'derecha';
+}
+
+/**
+ * Dónde se guarda la corrección de un ángulo de la IA: al lado de la medición,
+ * con la misma query, así que la compuerta del servidor la acota igual.
+ */
+export function urlCorreccion(urlMedicion: string): string {
+  const url = new URL(urlMedicion);
+  url.pathname = url.pathname.replace(/\/ia\/caderas$/, '/ia/caderas/correccion');
+  return url.toString();
+}
+
+/**
+ * Si el radiólogo movió algún punto más de `tolerancia` píxeles. Por debajo es
+ * ruido de redondeo (mundo ↔ imagen), no una corrección.
+ */
+export function cambiaron(a: Tres, b: Tres, tolerancia = 0.5): boolean {
+  return a.some((p, i) => Math.hypot(p[0] - b[i][0], p[1] - b[i][1]) > tolerancia);
 }
 
 export const PREFIJO = 'IA · cadera';

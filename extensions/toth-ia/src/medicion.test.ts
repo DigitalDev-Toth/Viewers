@@ -2,8 +2,11 @@ import {
   angulosCaderas,
   avisoDeError,
   caderaDeLaIzquierda,
+  cambiaron,
   etiqueta,
+  urlCorreccion,
   urlMedicion,
+  type Tres,
 } from './medicion';
 
 const WADO =
@@ -123,5 +126,36 @@ describe('avisoDeError', () => {
     expect(
       avisoDeError(503, { motivo: 'la medición con IA no está configurada en este visor' })
     ).toMatch(/no está configurada/);
+  });
+});
+
+describe('correcciones', () => {
+  it('van al lado de la medición, con la misma query', () => {
+    const medicion = urlMedicion(WADO, INSTANCIA);
+    const url = new URL(urlCorreccion(medicion));
+
+    expect(url.pathname).toBe('/api/ia/caderas/correccion');
+    expect(url.search).toBe(new URL(medicion).search);
+  });
+
+  it('sólo cuenta como cambio lo que pasa del redondeo', () => {
+    const a: Tres = [
+      [100, 500],
+      [400, 520],
+      [250, 455],
+    ];
+    const casi: Tres = [
+      [100.3, 500],
+      [400, 520.2],
+      [250, 455],
+    ];
+    const movido: Tres = [
+      [100, 500],
+      [400, 520],
+      [252, 455],
+    ];
+
+    expect(cambiaron(casi, a)).toBe(false);
+    expect(cambiaron(movido, a)).toBe(true);
   });
 });

@@ -870,6 +870,24 @@ importers:
         specifier: workspace:*
         version: link:../default
 
+  extensions/toth-ia:
+    dependencies:
+      '@cornerstonejs/core':
+        specifier: 5.6.12
+        version: 5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0)
+      '@cornerstonejs/dicom-image-loader':
+        specifier: 5.6.12
+        version: 5.6.12(patch_hash=ef071a5e874a3d13850a5d87fd21835962a89f4ce22842be4965d4e22adbae70)(@cornerstonejs/core@5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0))(@cornerstonejs/metadata@5.6.12)(dicom-parser@1.8.21)
+      '@cornerstonejs/tools':
+        specifier: 5.6.12
+        version: 5.6.12(@cornerstonejs/core@5.6.12(@cornerstonejs/metadata@5.6.12)(@cornerstonejs/utils@5.6.12)(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0))(@kitware/vtk.js@36.4.1(autoprefixer@10.4.27(postcss@8.5.26))(wslink@2.5.0))(@types/d3-array@3.2.1)(@types/d3-interpolate@3.0.4)(d3-array@3.2.4)(d3-interpolate@3.0.1)(gl-matrix@3.4.3)
+      '@ohif/core':
+        specifier: workspace:*
+        version: link:../../platform/core
+      '@ohif/ui-next':
+        specifier: workspace:*
+        version: link:../../platform/ui-next
+
   extensions/toth-overlay:
     dependencies:
       '@cornerstonejs/core':

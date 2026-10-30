@@ -10,6 +10,7 @@
  * CORS que configurar en el relay, ni preflights por cada imagen.
  *
  *   /open?token= → canjea el enlace firmado por una cookie y abre el estudio
+ *   /api/ia/caderas → «Medir IA» (ia-caderas.mjs), con la misma compuerta
  *   /api/*       → relay (con el token), sólo con cookie válida
  *   /*           → dist/, con fallback a index.html para las rutas de la SPA
  *
@@ -27,6 +28,8 @@
  *   PUBLIC_ORIGIN        origen público, p.ej. https://ohif.cui.date
  *   DIST_DIR             ./dist
  *   PORT                 8080 (Cloud Run lo inyecta)
+ *   IA_CADERAS_URL       servicio de «Medir IA»; sin ella, /api/ia/caderas da 503
+ *   IA_CADERAS_TOKEN     su Bearer (ver ia-caderas.mjs)
  */
 
 import http from 'node:http';
@@ -44,6 +47,7 @@ import {
   verifyLinkToken,
 } from './link-token.mjs';
 import { authorizeApiRequest } from './api-gate.mjs';
+import { configIa, enviarJson, medirCaderas, parsePedido } from './ia-caderas.mjs';
 
 const PORT = Number(process.env.PORT ?? 8080);
 const RELAY = new URL(process.env.RELAY_BASE ?? 'https://relay.cui.date');
@@ -204,6 +208,16 @@ function proxyToRelay(req, res, pathname, search) {
   req.pipe(upstream);
 }
 
+async function medirIa(res, params) {
+  const { pedido, status, message } = parsePedido(params);
+  if (!pedido) {
+    denied(res, status, message);
+    return;
+  }
+  const opciones = { relayBase: RELAY.origin, relayToken: TOKEN, ...configIa() };
+  enviarJson(res, await medirCaderas(pedido, opciones));
+}
+
 function serveStatic(res, pathname) {
   // path.normalize + prefijo obligatorio: sin esto un `..` en la URL sacaría
   // archivos de fuera de dist.
@@ -252,6 +266,11 @@ http
       const rechazo = authorizeApiRequest(apiPath, new URLSearchParams(search), claimsFor(req));
       if (rechazo) {
         denied(res, rechazo.status, rechazo.message);
+        return;
+      }
+
+      if (apiPath === '/ia/caderas') {
+        medirIa(res, new URLSearchParams(search));
         return;
       }
 

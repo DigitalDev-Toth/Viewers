@@ -19,6 +19,8 @@ substitutions:
   # y las dos se pagaban como egress. Requiere la salida a la VPC de abajo.
   _RELAY_BASE: http://192.168.0.8:8080
   _PUBLIC_ORIGIN: https://ohif.cui.date
+  # Nodo dicom-ia del relay que sirve /ia/caderas (botón «Medir IA»): el Supermicro.
+  _IA_NODO: supermicro
 
 steps:
   - id: build
@@ -55,8 +57,8 @@ steps:
       # MIRROR_LINK_SECRETS (en plural) porque el relay tiene dos valores para
       # poder rotar: si acá va sólo uno, los enlaces firmados con el otro
       # dejan de abrir.
-      - --set-secrets=RELAY_REQUEST_TOKEN=relay-request-token:latest,MIRROR_LINK_SECRETS=mirror-link-secrets:latest
-      - --set-env-vars=RELAY_BASE=$_RELAY_BASE,PUBLIC_ORIGIN=$_PUBLIC_ORIGIN
+      - --set-secrets=RELAY_REQUEST_TOKEN=relay-request-token:latest,MIRROR_LINK_SECRETS=mirror-link-secrets:latest,IA_CADERAS_TOKEN=relay-request-token:latest
+      - --set-env-vars=RELAY_BASE=$_RELAY_BASE,PUBLIC_ORIGIN=$_PUBLIC_ORIGIN,IA_CADERAS_URL=$_RELAY_BASE/ia/caderas?client=$_IA_NODO
       # Salida directa a la VPC (igual que mirror-viewer) para llegar al relay
       # por IP interna; el resto del tráfico sigue saliendo por internet.
       - --network=network-cuidate2

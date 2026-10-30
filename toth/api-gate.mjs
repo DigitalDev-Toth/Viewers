@@ -15,10 +15,14 @@
 // es por estudio, así que no hay forma de autorizar un listado completo con él;
 // y el visor no las usa. Exponerlas sin poder acotarlas sería regalar el
 // archivo entero a cualquiera con un enlace válido a un solo estudio.
+//
+// /ia/caderas no va al relay tal cual: la atiende ia-caderas.mjs, que pide al
+// relay el JPEG de esa misma instancia. Por eso se acota igual que /wado.
 export const API_ROUTES = [
   { re: /^\/wado$/, studyFrom: 'query' },
   { re: /^\/study\/([^/]+)$/, studyFrom: 'path' },
   { re: /^\/study\/([^/]+)\/ohif$/, studyFrom: 'path' },
+  { re: /^\/ia\/caderas$/, studyFrom: 'query' },
 ];
 
 export function matchApiRoute(apiPath) {

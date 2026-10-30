@@ -1,0 +1,29 @@
+{
+  "name": "@ohif/extension-toth-ia",
+  "version": "3.14.0-beta.12",
+  "description": "«Medir IA»: el índice acetabular de una RX de pelvis pediátrica, como ángulos editables",
+  "author": "Toth",
+  "license": "MIT",
+  "main": "src/index.tsx",
+  "module": "src/index.tsx",
+  "engines": {
+    "node": ">=24"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@ohif/core": "workspace:*",
+    "@ohif/ui-next": "workspace:*"
+  },
+  "scripts": {
+    "test:unit": "jest --watchAll",
+    "test:unit:ci": "jest --ci --runInBand --collectCoverage --passWithNoTests"
+  },
+  "dependencies": {
+    "@cornerstonejs/core": "5.6.12",
+    "@cornerstonejs/dicom-image-loader": "5.6.12",
+    "@cornerstonejs/tools": "5.6.12"
+  }
+}

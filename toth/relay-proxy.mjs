@@ -26,11 +26,20 @@
  *   RELAY_REQUEST_TOKEN="$(gcloud secrets versions access latest --secret=relay-request-token)" \
  *   MIRROR_LINK_SECRETS="$(gcloud secrets versions access latest --secret=mirror-link-secrets)" \
  *   node toth/relay-proxy.mjs
+ *
+ * «Medir IA» (/ia/caderas, ver ia-caderas.mjs) contra el servicio del
+ * Supermicro en la LAN, con una clave de su ~/.config/ia/api-keys:
+ *
+ *   IA_CADERAS_URL=http://10.10.10.2:8096/ia/caderas \
+ *   IA_CADERAS_TOKEN="$(ssh toth@10.10.10.2 head -1 .config/ia/api-keys)" \
+ *   RELAY_REQUEST_TOKEN=... node toth/relay-proxy.mjs
  */
 
 import crypto from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
+
+import { configIa, enviarJson, medirCaderas, parsePedido } from './ia-caderas.mjs';
 
 const PORT = Number(process.env.PROXY_PORT ?? 3001);
 const RELAY = new URL(process.env.RELAY_BASE ?? 'https://relay.cui.date');
@@ -73,6 +82,7 @@ const ALLOWED = [
   /^\/intensity$/,
   /^\/study\/[^/]+$/,
   /^\/study\/[^/]+\/ohif$/,
+  /^\/ia\/caderas$/,
 ];
 
 if (!TOKEN && RELAY.protocol === 'https:') {
@@ -105,6 +115,20 @@ const server = http.createServer((req, res) => {
   }
 
   const params = new URLSearchParams(search);
+
+  if (pathname === '/ia/caderas') {
+    const { pedido, status, message } = parsePedido(params);
+    const cors = { 'Access-Control-Allow-Origin': ORIGIN };
+    if (!pedido) {
+      enviarJson(res, { status, body: { ok: false, motivo: message } }, cors);
+      return;
+    }
+    medirCaderas(pedido, { relayBase: RELAY.origin, relayToken: TOKEN, ...configIa() }).then(r =>
+      enviarJson(res, r, cors)
+    );
+    return;
+  }
+
   let authorization = TOKEN && `Bearer ${TOKEN}`;
 
   if (pathname === '/studies' && RELAY.protocol === 'https:') {

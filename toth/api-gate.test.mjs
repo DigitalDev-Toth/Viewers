@@ -24,10 +24,15 @@ const q = obj => new URLSearchParams(obj);
 
 // ── rutas ──────────────────────────────────────────────────────────────────
 
-test('sólo se exponen las tres rutas que el visor usa', () => {
+test('sólo se exponen las rutas que el visor usa', () => {
   assert.ok(matchApiRoute('/wado'));
   assert.ok(matchApiRoute(`/study/${ESTUDIO}`));
   assert.ok(matchApiRoute(`/study/${ESTUDIO}/ohif`));
+  assert.ok(matchApiRoute('/ia/caderas'));
+
+  // De /ia/* sólo la medición: /ia/informe y compañía son de otros productos.
+  assert.equal(matchApiRoute('/ia/informe'), null);
+  assert.equal(matchApiRoute('/ia/caderas/otra'), null);
 
   // /studies e /intensity existen en el relay y quedaron fuera a propósito:
   // no hay forma de acotar un listado con un token por estudio.
@@ -72,6 +77,28 @@ test('el estudio de la ruta se compara ya decodificado', () => {
   const codificado = `/study/${encodeURIComponent(ESTUDIO)}`;
 
   assert.equal(authorizeApiRequest(codificado, q({ client: 'nim' }), view), null);
+});
+
+// ── «Medir IA» ─────────────────────────────────────────────────────────────
+
+test('medir con IA se acota al estudio del enlace, como una imagen', () => {
+  const propio = q({ client: 'nim', studyUID: ESTUDIO });
+  const ajeno = q({ client: 'nim', studyUID: OTRO_ESTUDIO });
+
+  assert.equal(authorizeApiRequest('/ia/caderas', propio, view), null);
+  assert.equal(authorizeApiRequest('/ia/caderas', ajeno, view).status, 403);
+  assert.equal(authorizeApiRequest('/ia/caderas', propio, null).status, 401);
+});
+
+test('medir con IA en sesión: cualquier estudio, pero de su centro', () => {
+  assert.equal(
+    authorizeApiRequest('/ia/caderas', q({ client: 'nim', studyUID: OTRO_ESTUDIO }), sesion),
+    null
+  );
+  assert.equal(
+    authorizeApiRequest('/ia/caderas', q({ client: 'cdc', studyUID: ESTUDIO }), sesion).status,
+    403
+  );
 });
 
 // ── sesión ─────────────────────────────────────────────────────────────────

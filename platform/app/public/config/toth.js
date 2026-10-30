@@ -545,6 +545,12 @@
     { commandName: 'increaseBrushSize', label: 'Pincel más grande', keys: [']'], isEditable: true },
     { commandName: 'decreaseBrushSize', label: 'Pincel más chico', keys: ['['], isEditable: true },
     herramienta('CircularBrush', 'Pincel', ['b']),
+    // toth-ia: Mayús + M de «medir».
+    {
+      commandName: 'medirIndiceAcetabular',
+      label: 'Medir índice acetabular con IA',
+      keys: ['shift+m'],
+    },
   ];
 
   /** @returns {AppTypes.Config} */
@@ -560,6 +566,10 @@
         // Horos: con varios pacientes en la sesión y el visor repartido en
         // varias ventanas, cada imagen tiene que decir de quién es.
         '@ohif/extension-toth-overlay',
+        // «Medir IA»: el índice acetabular de una RX de pelvis pediátrica como
+        // dos ángulos editables. Necesita IA_CADERAS_URL en el servidor del
+        // visor; sin ella el botón avisa que no está configurada.
+        '@ohif/extension-toth-ia',
       ],
       modes: [],
       customizationService: {

@@ -33,6 +33,10 @@
  *   IA_CADERAS_URL=http://10.10.10.2:8096/ia/caderas \
  *   IA_CADERAS_TOKEN="$(ssh toth@10.10.10.2 head -1 .config/ia/api-keys)" \
  *   RELAY_REQUEST_TOKEN=... node toth/relay-proxy.mjs
+ *
+ * Y en una telerradiografía de EEII (/ia/pierna, ver ia-pierna.mjs):
+ *
+ *   IA_PIERNA_URL=http://10.10.10.2:8098/ia/pierna IA_PIERNA_TOKEN=... (la misma clave)
  */
 
 import crypto from 'node:crypto';
@@ -48,6 +52,12 @@ import {
   parseCorreccion,
   parsePedido,
 } from './ia-caderas.mjs';
+import {
+  configIaPierna,
+  medirPierna,
+  parseCorreccionPierna,
+  parsePedidoPierna,
+} from './ia-pierna.mjs';
 
 const PORT = Number(process.env.PROXY_PORT ?? 3001);
 const RELAY = new URL(process.env.RELAY_BASE ?? 'https://relay.cui.date');
@@ -92,6 +102,8 @@ const ALLOWED = [
   /^\/study\/[^/]+\/ohif$/,
   /^\/ia\/caderas$/,
   /^\/ia\/caderas\/correccion$/,
+  /^\/ia\/pierna$/,
+  /^\/ia\/pierna\/correccion$/,
 ];
 
 if (!TOKEN && RELAY.protocol === 'https:') {
@@ -135,6 +147,37 @@ const server = http.createServer((req, res) => {
     medirCaderas(pedido, { relayBase: RELAY.origin, relayToken: TOKEN, ...configIa() }).then(r =>
       enviarJson(res, r, cors)
     );
+    return;
+  }
+
+  if (pathname === '/ia/pierna') {
+    const { pedido, status, message } = parsePedidoPierna(params);
+    const cors = { 'Access-Control-Allow-Origin': ORIGIN };
+    if (!pedido) {
+      enviarJson(res, { status, body: { ok: false, motivo: message } }, cors);
+      return;
+    }
+    medirPierna(pedido, { relayBase: RELAY.origin, relayToken: TOKEN, ...configIaPierna() }).then(r =>
+      enviarJson(res, r, cors)
+    );
+    return;
+  }
+
+  if (pathname === '/ia/pierna/correccion') {
+    const cors = { 'Access-Control-Allow-Origin': ORIGIN };
+    leerCuerpo(req)
+      .catch(() => null)
+      .then(texto => {
+        const { pedido, correccion, status, message } =
+          texto === null
+            ? { status: 413, message: 'corrección demasiado grande' }
+            : parseCorreccionPierna(params, texto);
+        if (!correccion) {
+          enviarJson(res, { status, body: { ok: false, motivo: message } }, cors);
+          return;
+        }
+        guardarCorreccion(pedido, correccion, configIaPierna()).then(r => enviarJson(res, r, cors));
+      });
     return;
   }
 

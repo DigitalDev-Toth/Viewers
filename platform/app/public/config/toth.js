@@ -545,10 +545,10 @@
     { commandName: 'increaseBrushSize', label: 'Pincel más grande', keys: [']'], isEditable: true },
     { commandName: 'decreaseBrushSize', label: 'Pincel más chico', keys: ['['], isEditable: true },
     herramienta('CircularBrush', 'Pincel', ['b']),
-    // toth-ia: Mayús + M de «medir».
+    // toth-ia: Mayús + M de «medir». Pelvis o pierna completa, según la imagen.
     {
-      commandName: 'medirIndiceAcetabular',
-      label: 'Medir índice acetabular con IA',
+      commandName: 'medirIA',
+      label: 'Medir con IA (pelvis o pierna completa)',
       keys: ['shift+m'],
     },
   ];
@@ -567,8 +567,10 @@
         // varias ventanas, cada imagen tiene que decir de quién es.
         '@ohif/extension-toth-overlay',
         // «Medir IA»: el índice acetabular de una RX de pelvis pediátrica como
-        // dos ángulos editables. Necesita IA_CADERAS_URL en el servidor del
-        // visor; sin ella el botón avisa que no está configurada.
+        // dos ángulos editables, o el eje, el mLDFA y el MPTA de cada pierna
+        // en una telerradiografía. Necesita IA_CADERAS_URL e IA_PIERNA_URL en
+        // el servidor del visor; sin ellas el botón avisa que no está
+        // configurada.
         '@ohif/extension-toth-ia',
       ],
       modes: [],

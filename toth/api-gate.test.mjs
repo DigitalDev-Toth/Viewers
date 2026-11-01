@@ -93,6 +93,18 @@ test('medir con IA se acota al estudio del enlace, como una imagen', () => {
   assert.equal(authorizeApiRequest('/ia/caderas', propio, null).status, 401);
 });
 
+test('medir la pierna se acota igual que las caderas', () => {
+  const propio = q({ client: 'nim', studyUID: ESTUDIO });
+  const ajeno = q({ client: 'nim', studyUID: OTRO_ESTUDIO });
+
+  assert.equal(authorizeApiRequest('/ia/pierna', propio, view), null);
+  assert.equal(authorizeApiRequest('/ia/pierna', ajeno, view).status, 403);
+  assert.equal(authorizeApiRequest('/ia/pierna/correccion', propio, view), null);
+  assert.equal(authorizeApiRequest('/ia/pierna/correccion', ajeno, view).status, 403);
+  assert.equal(authorizeApiRequest('/ia/pierna', propio, null).status, 401);
+  assert.equal(authorizeApiRequest('/ia/pierna/otra', propio, view).status, 404);
+});
+
 test('medir con IA en sesión: cualquier estudio, pero de su centro', () => {
   assert.equal(
     authorizeApiRequest('/ia/caderas', q({ client: 'nim', studyUID: OTRO_ESTUDIO }), sesion),

@@ -18,13 +18,16 @@
 //
 // /ia/caderas no va al relay tal cual: la atiende ia-caderas.mjs, que pide al
 // relay el JPEG de esa misma instancia. Por eso se acota igual que /wado. Lo
-// mismo su corrección: lleva la query de la medición.
+// mismo su corrección: lleva la query de la medición. /ia/pierna, igual
+// (ia-pierna.mjs).
 export const API_ROUTES = [
   { re: /^\/wado$/, studyFrom: 'query' },
   { re: /^\/study\/([^/]+)$/, studyFrom: 'path' },
   { re: /^\/study\/([^/]+)\/ohif$/, studyFrom: 'path' },
   { re: /^\/ia\/caderas$/, studyFrom: 'query' },
   { re: /^\/ia\/caderas\/correccion$/, studyFrom: 'query' },
+  { re: /^\/ia\/pierna$/, studyFrom: 'query' },
+  { re: /^\/ia\/pierna\/correccion$/, studyFrom: 'query' },
 ];
 
 export function matchApiRoute(apiPath) {

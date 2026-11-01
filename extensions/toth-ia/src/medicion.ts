@@ -9,11 +9,26 @@ export type Puntos = Record<'tcc_izq' | 'asm_izq' | 'tcc_der' | 'asm_der', Punto
 export type Mitad = 'izq' | 'der';
 export type Tres = [Punto, Punto, Punto];
 
-type Instancia = { Rows?: number; Columns?: number; PhotometricInterpretation?: string };
+type Instancia = {
+  Rows?: number;
+  Columns?: number;
+  PhotometricInterpretation?: string;
+  PixelSpacing?: number[] | string;
+};
+export type Ruta = 'caderas' | 'pierna';
+
+/** El tamaño del píxel (mm, filas) del DICOM, venga como lista o como texto `a\b`. */
+export function mmPorPixel(instancia: Instancia | undefined): number | null {
+  const valor = instancia?.PixelSpacing;
+  const primero = Array.isArray(valor) ? valor[0] : String(valor ?? '').split('\\')[0];
+  const mm = Number(primero);
+  return Number.isFinite(mm) && mm > 0.01 && mm <= 2 ? mm : null;
+}
 
 /**
- * La URL de /ia/caderas para esta imagen, o null si no viene del WADO del
- * centro.
+ * La URL de /ia/caderas (o /ia/pierna) para esta imagen, o null si no viene
+ * del WADO del centro. La de pierna lleva además el tamaño del píxel (`mm`):
+ * el modelo recorta cada articulación en milímetros.
  *
  * El imageId del manifiesto de dicom-index es
  * `dicomweb:<wado_base>/wado?requestType=WADO&studyUID=…&seriesUID=…&objectUID=…&client=…`,
@@ -24,7 +39,8 @@ type Instancia = { Rows?: number; Columns?: number; PhotometricInterpretation?: 
  */
 export function urlMedicion(
   imageId: string | undefined,
-  instancia: Instancia | undefined
+  instancia: Instancia | undefined,
+  ruta: Ruta = 'caderas'
 ): string | null {
   const m = /^(?:dicomweb|wadouri):(.+)$/.exec(imageId ?? '');
   if (!m) {
@@ -58,7 +74,11 @@ export function urlMedicion(
   if (typeof fotometria === 'string' && fotometria.trim()) {
     q.set('fotometria', fotometria.trim());
   }
-  return `${url.origin}${url.pathname.replace(/\/wado$/, '/ia/caderas')}?${q}`;
+  const mm = mmPorPixel(instancia);
+  if (ruta === 'pierna' && mm) {
+    q.set('mm', String(mm));
+  }
+  return `${url.origin}${url.pathname.replace(/\/wado$/, `/ia/${ruta}`)}?${q}`;
 }
 
 /**
@@ -107,7 +127,7 @@ export function caderaDeLaIzquierda(orientacion: string | undefined): 'derecha' 
  */
 export function urlCorreccion(urlMedicion: string): string {
   const url = new URL(urlMedicion);
-  url.pathname = url.pathname.replace(/\/ia\/caderas$/, '/ia/caderas/correccion');
+  url.pathname = url.pathname.replace(/\/ia\/(caderas|pierna)$/, '/ia/$1/correccion');
   return url.toString();
 }
 

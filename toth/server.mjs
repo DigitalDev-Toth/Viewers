@@ -12,6 +12,8 @@
  *   /open?token= → canjea el enlace firmado por una cookie y abre el estudio
  *   /api/ia/caderas → «Medir IA» (ia-caderas.mjs), con la misma compuerta
  *   /api/ia/caderas/correccion → las correcciones del radiólogo, ídem
+ *   /api/ia/pierna, /api/ia/pierna/correccion → lo mismo en una
+ *                  telerradiografía de EEII (ia-pierna.mjs)
  *   /api/*       → relay (con el token), sólo con cookie válida
  *   /*           → dist/, con fallback a index.html para las rutas de la SPA
  *
@@ -31,6 +33,8 @@
  *   PORT                 8080 (Cloud Run lo inyecta)
  *   IA_CADERAS_URL       servicio de «Medir IA»; sin ella, /api/ia/caderas da 503
  *   IA_CADERAS_TOKEN     su Bearer (ver ia-caderas.mjs)
+ *   IA_PIERNA_URL        ídem para /api/ia/pierna (ver ia-pierna.mjs)
+ *   IA_PIERNA_TOKEN      su Bearer
  */
 
 import http from 'node:http';
@@ -57,6 +61,12 @@ import {
   parseCorreccion,
   parsePedido,
 } from './ia-caderas.mjs';
+import {
+  configIaPierna,
+  medirPierna,
+  parseCorreccionPierna,
+  parsePedidoPierna,
+} from './ia-pierna.mjs';
 
 const PORT = Number(process.env.PORT ?? 8080);
 const RELAY = new URL(process.env.RELAY_BASE ?? 'https://relay.cui.date');
@@ -245,6 +255,34 @@ async function corregirIa(req, res, params) {
   enviarJson(res, await guardarCorreccion(pedido, correccion, configIa()));
 }
 
+async function medirIaPierna(res, params) {
+  const { pedido, status, message } = parsePedidoPierna(params);
+  if (!pedido) {
+    denied(res, status, message);
+    return;
+  }
+  const opciones = { relayBase: RELAY.origin, relayToken: TOKEN, ...configIaPierna() };
+  enviarJson(res, await medirPierna(pedido, opciones));
+}
+
+async function corregirIaPierna(req, res, params) {
+  if (req.method !== 'POST') {
+    denied(res, 405, 'sólo POST');
+    return;
+  }
+  const texto = await leerCuerpo(req).catch(() => null);
+  if (texto === null) {
+    denied(res, 413, 'corrección demasiado grande');
+    return;
+  }
+  const { pedido, correccion, status, message } = parseCorreccionPierna(params, texto);
+  if (!correccion) {
+    denied(res, status, message);
+    return;
+  }
+  enviarJson(res, await guardarCorreccion(pedido, correccion, configIaPierna()));
+}
+
 function serveStatic(res, pathname) {
   // path.normalize + prefijo obligatorio: sin esto un `..` en la URL sacaría
   // archivos de fuera de dist.
@@ -302,6 +340,14 @@ http
       }
       if (apiPath === '/ia/caderas/correccion') {
         corregirIa(req, res, new URLSearchParams(search));
+        return;
+      }
+      if (apiPath === '/ia/pierna') {
+        medirIaPierna(res, new URLSearchParams(search));
+        return;
+      }
+      if (apiPath === '/ia/pierna/correccion') {
+        corregirIaPierna(req, res, new URLSearchParams(search));
         return;
       }
 

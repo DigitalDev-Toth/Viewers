@@ -20,7 +20,7 @@
 import { eventTarget, utilities as csUtils } from '@cornerstonejs/core';
 import { Enums as csToolsEnums } from '@cornerstonejs/tools';
 
-import { cambiaron, urlCorreccion, type Mitad, type Tres } from './medicion';
+import { cambiaron, urlCorreccion, type Tres } from './medicion';
 
 const ESPERA_MS = 2000;
 const CAMBIOS = new Set<string>([
@@ -31,8 +31,9 @@ const CAMBIOS = new Set<string>([
 type Seguido = {
   url: string; // la de la medición: la corrección va al lado
   imageId: string;
-  cadera: 'derecha' | 'izquierda';
-  mitad: Mitad;
+  // Lo que identifica el ángulo, distinto en caderas ({cadera, mitad}) y en la
+  // pierna ({pierna, mitad, medida}); el servidor del visor valida cada forma.
+  campos: Record<string, string>;
   modelo: string;
   puntosIa: Tres;
   enviados: Tres;
@@ -82,8 +83,7 @@ function enviar(uid: string, keepalive = false) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       anotacion: uid,
-      cadera: s.cadera,
-      mitad: s.mitad,
+      ...s.campos,
       modelo: s.modelo,
       puntos_ia: s.puntosIa,
       puntos,

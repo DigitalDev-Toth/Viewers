@@ -59,8 +59,9 @@ const CLIENT_RE = /^[a-z0-9_-]{1,32}$/;
 const SCOPES = new Set(['view', 'session']);
 
 /**
- * Devuelve `{scope, study_iuid, client, exp}` si el token es válido, o null.
- * `study_iuid` es null en los de sesión, que no acotan por estudio.
+ * Devuelve `{scope, study_iuid, client, clients, exp}` si el token es válido, o
+ * null. `study_iuid` es null en los de sesión, que no acotan por estudio.
+ * `clients` son los nombres del centro ante el relay; casi siempre `[client]`.
  *
  * Nunca lanza ni distingue el motivo del rechazo hacia afuera: un atacante no
  * tiene por qué saber si falló la firma, el scope o la expiración.
@@ -106,6 +107,19 @@ export function verifyLinkToken(token, { secrets = linkSecrets(), maxTtlSeconds,
     return null;
   }
 
+  // Un centro que arc2 atiende por alias (csf-arc2) conserva su conector
+  // propio (csf) con los estudios que no llegaron a arc2. El token de sesión
+  // los nombra a los dos para que el mismo visor abra estudios de ambos; el
+  // primero es siempre `client`. Sólo en sesión: el de `view` ya viene firmado
+  // con el canal de su estudio.
+  let clients = [client];
+  if (payload.clients != null) {
+    if (scope !== 'session' || !Array.isArray(payload.clients)) return null;
+    clients = payload.clients.map(String);
+    if (clients[0] !== client || clients.length > 4) return null;
+    if (!clients.every(name => CLIENT_RE.test(name))) return null;
+  }
+
   const iat = Number(payload.iat);
   const exp = Number(payload.exp);
   if (!Number.isFinite(iat) || !Number.isFinite(exp)) return null;
@@ -118,7 +132,7 @@ export function verifyLinkToken(token, { secrets = linkSecrets(), maxTtlSeconds,
   const maxTtl = maxTtlSeconds ?? Number(process.env.MIRROR_MAX_TOKEN_TTL_SECONDS ?? 86400);
   if (exp <= iat || exp - iat > maxTtl) return null;
 
-  return { scope, study_iuid: studyIuid, client, exp };
+  return { scope, study_iuid: studyIuid, client, clients, exp };
 }
 
 export const COOKIE_NAME = 'mirror_auth';

@@ -165,9 +165,15 @@ function openStudy(req, res, params) {
     return;
   }
 
+  // En sesión el RIS puede decir por cuál de los nombres del centro está el
+  // estudio (el conector propio, si no llegó a arc2); fuera de `clients` no
+  // se acepta, y sin él se usa el principal.
+  const pedido = claims.scope === 'session' ? params.get('client') : null;
+  const client = pedido && claims.clients.includes(pedido) ? pedido : claims.client;
+
   const manifest =
     `/api/study/${encodeURIComponent(study)}` +
-    `?client=${encodeURIComponent(claims.client)}&format=ohif`;
+    `?client=${encodeURIComponent(client)}&format=ohif`;
   const destino =
     `/viewer?url=${encodeURIComponent(manifest)}` +
     `&StudyInstanceUIDs=${encodeURIComponent(study)}`;

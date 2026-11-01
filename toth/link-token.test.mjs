@@ -140,6 +140,27 @@ test('el token de sesión no escapa al tope de vigencia', () => {
   );
 });
 
+test('sin `clients`, el centro tiene un solo nombre', () => {
+  assert.deepEqual(verificar(firmar(valido())).clients, ['nim']);
+});
+
+test('la sesión puede nombrar al centro por su alias y su conector propio', () => {
+  const sesion = { scope: 'session', client: 'csf-arc2', iat: ahora, exp: ahora + 3600 };
+
+  assert.deepEqual(verificar(firmar({ ...sesion, clients: ['csf-arc2', 'csf'] })).clients, [
+    'csf-arc2',
+    'csf',
+  ]);
+  // El principal va primero: así `clients` no puede cambiar de centro.
+  assert.equal(verificar(firmar({ ...sesion, clients: ['csf', 'csf-arc2'] })), null);
+  assert.equal(verificar(firmar({ ...sesion, clients: 'csf' })), null);
+  assert.equal(verificar(firmar({ ...sesion, clients: ['csf-arc2', 'CSF; x'] })), null);
+});
+
+test('el enlace de un estudio no acepta `clients`: viene firmado con su canal', () => {
+  assert.equal(verificar(firmar(valido({ clients: ['nim', 'cdc'] }))), null);
+});
+
 test('el scope viaja en los claims para que la compuerta pueda distinguirlos', () => {
   assert.equal(verificar(firmar(valido())).scope, 'view');
 });

@@ -62,8 +62,10 @@ export function authorizeApiRequest(apiPath, params, claims) {
   }
 
   // El centro se compara siempre: es lo que impide que un token de un cliente
-  // alcance el archivo de otro, y vale para los dos scopes.
-  if (params.get('client') !== claims.client) {
+  // alcance el archivo de otro, y vale para los dos scopes. `clients` son los
+  // nombres de ESE centro ante el relay (alias de arc2 y conector propio).
+  const clients = claims.clients ?? [claims.client];
+  if (!clients.includes(params.get('client'))) {
     return { status: 403, message: 'el enlace no autoriza ese centro' };
   }
 

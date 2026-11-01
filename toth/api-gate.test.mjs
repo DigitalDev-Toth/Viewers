@@ -133,6 +133,17 @@ test('la sesión no alcanza el archivo de otro centro', () => {
   assert.equal(r.status, 403);
 });
 
+test('la sesión de un centro con alias abre por sus dos nombres y nada más', () => {
+  // csf-arc2 es csf atendido por arc2; csf es su conector propio, con los
+  // estudios que no llegaron a arc2.
+  const conAlias = { ...sesion, client: 'csf-arc2', clients: ['csf-arc2', 'csf'] };
+  const ruta = `/study/${ESTUDIO}/ohif`;
+
+  assert.equal(authorizeApiRequest(ruta, q({ client: 'csf-arc2' }), conAlias), null);
+  assert.equal(authorizeApiRequest(ruta, q({ client: 'csf' }), conAlias), null);
+  assert.equal(authorizeApiRequest(ruta, q({ client: 'nim' }), conAlias).status, 403);
+});
+
 test('la sesión tampoco pasa sin client', () => {
   assert.equal(authorizeApiRequest('/wado', q({ studyUID: ESTUDIO }), sesion).status, 403);
 });

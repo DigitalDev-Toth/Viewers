@@ -1,8 +1,8 @@
 # @ohif/extension-toth-ia
 
 «Medir IA»: un botón (y `Mayús + M`) que deja medido el índice acetabular de
-una RX de pelvis pediátrica, como dos ángulos editables que el radiólogo revisa
-y corrige. Si mueve un punto, el ángulo se recalcula solo. En una
+una RX de pelvis pediátrica, como dos ángulos Cobb editables que el radiólogo
+revisa y corrige. Si mueve un punto, el ángulo se recalcula solo. En una
 telerradiografía de EEII (una placa al menos 1,8 veces más alta que ancha) el
 mismo botón mide la pierna: ver «Pierna completa» más abajo.
 
@@ -28,11 +28,26 @@ servidor del visor ──POST JPEG──▶ ia-caderas (Supermicro, iaTunning/sc
   del modelo no se concentran en un punto o la geometría no calza. En 200 RX
   públicas rechazó 1; en recortes que imitan una placa equivocada (sólo
   fémures, media pelvis, rotada) rechazó casi todos. El radiólogo ve el motivo.
-- Cada cadera es una herramienta **Ángulo** con los puntos [lateral sobre
-  Hilgenreiner, cartílago trirradiado, techo]: Ángulo mide en el punto del
-  medio, así que muestra el índice acetabular exacto del modelo. Cobb no sirve:
-  reordena los segmentos por los extremos más cercanos y, con el vértice
-  compartido, mediría 180° menos el índice.
+- Cada cadera es una herramienta **Cobb** (desde noviembre de 2026; antes,
+  Ángulo de 3 puntos), dibujada como a mano (`cobbCaderas` en `medicion.ts`):
+  - **Hilgenreiner**: una sola línea por los dos cartílagos trirradiados,
+    prolongada hacia afuera de cada uno dos veces el largo de su techo. Cada
+    Cobb lleva su copia y `hilgenreiner.ts` las mueve juntas: si el radiólogo
+    corrige la línea, cambian los dos ángulos (y se guardan las dos
+    correcciones).
+  - **Techo**: del cartílago al borde acetabular. No comparte vértice con
+    Hilgenreiner: el cartílago queda sobre ella, entre sus extremos, y cada
+    punto se toma por separado.
+  - El valor es exactamente el índice del modelo: Cobb junta las líneas por
+    su par de extremos más cercanos, que es el de Hilgenreiner de ese lado con
+    el borde del techo (las dos hacia afuera). Si Hilgenreiner terminara en
+    los cartílagos, el par sería el cartílago y mostraría 180° menos el índice.
+    Con la prolongación de dos techos eso sólo pasa si el radiólogo la acorta a
+    menos de medio techo (un techo, con 60°). Lo comprueba `cobb.test.ts`
+    contra el `_calculateCachedStats` de CobbAngleTool 5.6.12.
+  - El texto va junto a cada cartílago (`textosCaderas`): sin eso Cobb lo
+    pone en su punto de más a la derecha, el mismo extremo de Hilgenreiner
+    para las dos caderas.
 - Las etiquetas dicen de qué cadera del paciente es cada ángulo, leyendo
   `PatientOrientation` del archivo (en una AP habitual, `L\F`: la izquierda de
   la imagen es la cadera derecha).
@@ -41,7 +56,7 @@ servidor del visor ──POST JPEG──▶ ia-caderas (Supermicro, iaTunning/sc
   del techo en otro lugar). Las mediciones viven en la sesión, como las
   manuales: el data source `dicomjson` es de sólo lectura.
 - Volver a apretar el botón sobre la misma imagen reemplaza los ángulos de la
-  IA, no los suma.
+  IA, no los suma; también los de Ángulo que hayan quedado de antes.
 
 ## Correcciones del radiólogo
 
@@ -53,6 +68,14 @@ navegador ──POST /api/ia/caderas/correccion?<query de la medición>  {anotac
 servidor del visor ──POST JSON a la misma ruta /ia/caderas──▶ ia-caderas, que lo anota en el Supermicro
 ```
 
+- Se guardan en la forma de siempre: los tres puntos [lateral sobre
+  Hilgenreiner, cartílago, techo], con el índice en el del medio. El Cobb se
+  convierte en el navegador (`tresDesdeCobb`): cartílago y techo son los
+  extremos del techo, y el punto lateral queda en la dirección de Hilgenreiner
+  que da el mismo ángulo que mostraba Cobb, a la distancia que le dio la IA.
+  Así el servidor del visor y el servicio no cambiaron, y las filas viejas
+  (de Ángulo) y las nuevas se leen igual. Lo único que no pasa es dónde quedó
+  Hilgenreiner si se la corrió en paralelo, que no cambia el índice.
 - Cornerstone avisa en cada paso del arrastre, así que cada ángulo se manda
   2 s después de su último movimiento (o al cerrar o cambiar de estudio, con
   `keepalive`), y sólo si algún punto se movió más de medio píxel desde lo
@@ -122,7 +145,11 @@ RELAY_REQUEST_TOKEN=... node toth/relay-proxy.mjs
 APP_CONFIG=config/toth.js pnpm dev
 ```
 
-Tests: `node --test toth/*.test.mjs` y `npx jest` en esta carpeta.
+Sin datos de pacientes: `iaTunning/scripts/mac/indice_publico.py` hace de dicom-index con RX públicas
+(AV-DDH, BMPLE) y su docstring trae los servicios en el Mac (puertos 8196 y 8198, correcciones a un archivo aparte) y
+el proxy con `RELAY_BASE=http://localhost:3011`. Así se probó el Cobb el 2026-11-03.
+
+Tests: `node --test toth/*.test.mjs` y `npx jest` en esta carpeta (`cobb.test.ts` carga Cornerstone).
 
 ## En producción
 

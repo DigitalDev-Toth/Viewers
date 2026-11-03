@@ -20,7 +20,7 @@
 import { eventTarget, utilities as csUtils } from '@cornerstonejs/core';
 import { Enums as csToolsEnums } from '@cornerstonejs/tools';
 
-import { cambiaron, urlCorreccion, type Tres } from './medicion';
+import { cambiaron, tresDesdeCobb, urlCorreccion, type Cuatro, type Tres } from './medicion';
 
 const ESPERA_MS = 2000;
 const CAMBIOS = new Set<string>([
@@ -51,16 +51,29 @@ export function seguirAngulo(
   SEGUIDOS.set(annotationUID, { ...datos, enviados: datos.puntosIa });
 }
 
-/** Los tres puntos en píxeles del DICOM, con el centro del primer píxel como (0, 0) igual que el servicio. */
+const centesimas = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Los tres puntos en píxeles del DICOM, con el centro del primer píxel como
+ * (0, 0) igual que el servicio. Los cuatro de un Cobb de cadera pasan a los
+ * tres de siempre con `tresDesdeCobb`, con el punto lateral a la distancia del
+ * cartílago que le dio la IA: si no se tocó nada, salen los mismos `puntosIa`.
+ */
 function puntosImagen(s: Seguido): Tres | null {
   const puntos = s.anotacion?.data?.handles?.points;
-  if (!Array.isArray(puntos) || puntos.length !== 3) {
+  if (!Array.isArray(puntos) || (puntos.length !== 3 && puntos.length !== 4)) {
     return null;
   }
-  return puntos.map(p => {
+  const imagen = puntos.map(p => {
     const [x, y] = csUtils.worldToImageCoords(s.imageId, p as [number, number, number]);
-    return [Math.round((x - 0.5) * 100) / 100, Math.round((y - 0.5) * 100) / 100];
-  }) as Tres;
+    return [centesimas(x - 0.5), centesimas(y - 0.5)];
+  });
+  if (imagen.length === 3) {
+    return imagen as Tres;
+  }
+  const [lateral, tcc] = s.puntosIa;
+  const largo = Math.hypot(lateral[0] - tcc[0], lateral[1] - tcc[1]);
+  return tresDesdeCobb(imagen as Cuatro, largo).map(p => p.map(centesimas)) as Tres;
 }
 
 function enviar(uid: string, keepalive = false) {

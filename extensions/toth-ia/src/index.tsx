@@ -13,6 +13,7 @@ import { metaData } from '@cornerstonejs/core';
 import { ToolbarService } from '@ohif/core';
 
 import { escucharCorrecciones } from './correcciones';
+import { escucharHilgenreiner } from './hilgenreiner';
 import { id } from './id.js';
 import { medirIndiceAcetabular } from './medirIndiceAcetabular';
 import { medirPierna } from './medirPierna';
@@ -60,7 +61,10 @@ function insertAfterMeasurementTools(buttonIds: string[] = []): string[] {
 const tothIaExtension = {
   id,
 
-  preRegistration: () => escucharCorrecciones(),
+  preRegistration: () => {
+    escucharCorrecciones();
+    escucharHilgenreiner();
+  },
 
   getCommandsModule: ({ servicesManager }) => ({
     definitions: {

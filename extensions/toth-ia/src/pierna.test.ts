@@ -3,8 +3,11 @@ import {
   anguloAlMedio,
   avisoErrorPierna,
   avisoPiernas,
+  desnivel,
   desviacion,
+  dondeTexto,
   esTelerradiografia,
+  etiquetaDesnivel,
   etiquetaPierna,
   PREFIJOS_PIERNA,
   textoEje,
@@ -108,9 +111,83 @@ describe('los textos', () => {
     expect(textoPierna(undefined)).toBeNull();
   });
 
+  it('el eje anatómico se escribe como el mecánico', () => {
+    const valgo = [
+      [100, 0, 0],
+      [110, 500, 0],
+      [100, 1000, 0],
+    ];
+    const ia = { medida: 'anatomico', mitad: 'izq', lateral: LATERAL_IZQ } as const;
+    expect(textoPierna({ ia, handles: { points: valgo } })).toEqual(['Eje anatómico 2,3° valgo']);
+    expect(textoEje(0, 'Eje anatómico')).toBe('Eje anatómico 0°');
+  });
+
+  it('los largos usan lo que calibró Longitud', () => {
+    const linea = [
+      [0, 0, 0],
+      [0, 424.4, 0],
+    ];
+    const femur = { ia: { medida: 'femur', mitad: 'izq' } as const, handles: { points: linea } };
+    expect(textoPierna(femur, { length: 424.4, unit: 'mm' })).toEqual(['Fémur 424 mm']);
+    expect(textoPierna(femur, { length: 424.4, unit: 'mm Unknown' })).toEqual(['Fémur 424 mm']);
+    expect(
+      textoPierna({ ...femur, ia: { medida: 'tibia', mitad: 'der' } as const }, { length: 359.6, unit: 'mm' })
+    ).toEqual(['Tibia 360 mm']);
+    // Sin el largo todavía calculado, que lo escriba la herramienta.
+    expect(textoPierna(femur, undefined)).toBeNull();
+    expect(textoPierna(femur, { length: NaN, unit: 'mm' })).toBeNull();
+  });
+
+  it('el desnivel es la diferencia de altura, con la pierna más alta', () => {
+    const abajo = [0, 1, 0];
+    // De la cabeza de la mitad izquierda a la de la derecha: 180 de ancho, 4 más abajo la segunda.
+    const puntos = [
+      [100, 300, 0],
+      [280, 304, 0],
+    ];
+    const largo = Math.hypot(180, 4);
+    expect(desnivel(puntos, abajo, largo)).toEqual({ valor: expect.closeTo(4, 6), masAlto: 0 });
+    const ia = { medida: 'cabezas', piernas: ['derecha', 'izquierda'], abajo } as const;
+    expect(textoPierna({ ia, handles: { points: puntos } }, { length: largo, unit: 'mm' })).toEqual([
+      'Desnivel de cabezas femorales: derecha 4 mm más alta',
+    ]);
+    const tibias = { medida: 'tibias', piernas: ['derecha', 'izquierda'], abajo } as const;
+    const alReves = [
+      [100, 304, 0],
+      [280, 300, 0],
+    ];
+    expect(textoPierna({ ia: tibias, handles: { points: alReves } }, { length: largo, unit: 'mm' })).toEqual([
+      'Desnivel de tibias: izquierda 4 mm más alta',
+    ]);
+    const parejo = [
+      [100, 300, 0],
+      [280, 300.2, 0],
+    ];
+    expect(textoPierna({ ia, handles: { points: parejo } }, { length: 180, unit: 'mm' })).toEqual([
+      'Desnivel de cabezas femorales: 0 mm',
+    ]);
+  });
+
+  it('los recuadros nuevos van hacia afuera de cada pierna o entre las dos', () => {
+    // 0,2 mm/px: 30 mm son 150 px.
+    expect(dondeTexto('femur', [[100, 0], [100, 2000]], 'izq', 0.2)).toEqual([-50, 1000]);
+    expect(dondeTexto('tibia', [[900, 0], [900, 2000]], 'der', 0.2)).toEqual([1050, 1000]);
+    expect(dondeTexto('cabezas', [[100, 500], [900, 500]], null, 0.2)).toEqual([300, 600]);
+    expect(dondeTexto('eje', [[0, 0], [0, 1], [0, 2]], 'izq', 0.2)).toBeNull();
+  });
+
   it('las etiquetas dicen la pierna del paciente y se reconocen para reemplazarlas', () => {
     const e = etiquetaPierna('mpta', 'izquierda');
     expect(e).toBe('IA · MPTA pierna izquierda (paciente)');
+    for (const nueva of [
+      etiquetaPierna('anatomico', 'derecha'),
+      etiquetaPierna('femur', 'derecha'),
+      etiquetaPierna('tibia', 'izquierda'),
+      etiquetaDesnivel('cabezas'),
+      etiquetaDesnivel('tibias'),
+    ]) {
+      expect(PREFIJOS_PIERNA.some(p => nueva.startsWith(p))).toBe(true);
+    }
     expect(PREFIJOS_PIERNA.some(p => e.startsWith(p))).toBe(true);
     expect(PREFIJOS_PIERNA.some(p => 'IA · cadera derecha (paciente)'.startsWith(p))).toBe(false);
   });

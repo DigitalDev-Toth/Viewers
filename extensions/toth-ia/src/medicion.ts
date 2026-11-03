@@ -239,8 +239,11 @@ export function urlCorreccion(urlMedicion: string): string {
  * Si el radiólogo movió algún punto más de `tolerancia` píxeles. Por debajo es
  * ruido de redondeo (mundo ↔ imagen), no una corrección.
  */
-export function cambiaron(a: Tres, b: Tres, tolerancia = 0.5): boolean {
-  return a.some((p, i) => Math.hypot(p[0] - b[i][0], p[1] - b[i][1]) > tolerancia);
+export function cambiaron(a: Punto[], b: Punto[], tolerancia = 0.5): boolean {
+  return (
+    a.length !== b.length ||
+    a.some((p, i) => Math.hypot(p[0] - b[i][0], p[1] - b[i][1]) > tolerancia)
+  );
 }
 
 export const PREFIJO = 'IA · cadera';

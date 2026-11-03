@@ -1,13 +1,14 @@
 /**
- * «Medir IA» en una telerradiografía de EEII: el eje mecánico, el mLDFA y el
- * MPTA de cada pierna, para la extensión toth-ia. Mismo camino que
+ * «Medir IA» en una telerradiografía de EEII: el eje mecánico y el anatómico,
+ * el mLDFA, el MPTA y los largos de fémur y tibia de cada pierna, y los
+ * desniveles entre las dos, para la extensión toth-ia. Mismo camino que
  * ia-caderas.mjs: el navegador pide
  *
  *   /api/ia/pierna?client=&studyUID=&seriesUID=&objectUID=&filas=&columnas=&mm=&fotometria=
  *
  * y este proceso baja del relay el JPEG de esa instancia y se lo pasa al
  * servicio ia-pierna (iaTunning/scripts/servicio_pierna.py), que devuelve los
- * ángulos ya en píxeles del DICOM. `mm` es el PixelSpacing del DICOM: el
+ * ángulos y las líneas ya en píxeles del DICOM. `mm` es el PixelSpacing del DICOM: el
  * modelo recorta cada articulación en milímetros.
  *
  * El JPEG va a 2.048 columnas, como las placas con que se entrenó el modelo
@@ -40,7 +41,19 @@ const MAX_BYTES = 16 * 1024 * 1024;
 const MM_RE = /^[0-9]{1,2}(\.[0-9]{1,8})?$/;
 const ANOTACION_RE = /^[0-9a-f-]{8,64}$/i;
 const MODELO_RE = /^[A-Za-z0-9._-]{0,64}$/;
-const MEDIDAS = ['eje', 'mldfa', 'mpta'];
+// Las correcciones: los ángulos llevan 3 puntos y los largos y desniveles, 2.
+// Un desnivel es de las dos piernas (pierna y mitad «ambas»).
+const PUNTOS_POR_MEDIDA = {
+  eje: 3,
+  mldfa: 3,
+  mpta: 3,
+  anatomico: 3,
+  femur: 2,
+  tibia: 2,
+  cabezas: 2,
+  tibias: 2,
+};
+const DESNIVELES = ['cabezas', 'tibias'];
 
 /** Como parsePedido, más el tamaño del píxel (opcional: sin él el servicio supone 0,3 mm/px en el JPEG). */
 export function parsePedidoPierna(params) {
@@ -83,13 +96,13 @@ export function urlServicioPierna(base, pedido) {
   return url.toString();
 }
 
-/** Tres puntos [x, y] con números finitos y razonables para el tamaño del DICOM. */
-function tresPuntos(valor, pedido) {
+/** `n` puntos [x, y] con números finitos y razonables para el tamaño del DICOM. */
+function puntosDe(valor, n, pedido) {
   const margen = Math.max(pedido.filas, pedido.columnas);
-  const dentro = n => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= 2 * margen;
+  const dentro = v => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 2 * margen;
   if (
     !Array.isArray(valor) ||
-    valor.length !== 3 ||
+    valor.length !== n ||
     !valor.every(p => Array.isArray(p) && p.length === 2 && p.every(dentro))
   ) {
     return null;
@@ -98,8 +111,8 @@ function tresPuntos(valor, pedido) {
 }
 
 /**
- * Valida una corrección a uno de los ángulos de la pierna, como
- * parseCorreccion de caderas: se rearma campo por campo.
+ * Valida una corrección a uno de los ángulos, largos o desniveles de la
+ * pierna, como parseCorreccion de caderas: se rearma campo por campo.
  */
 export function parseCorreccionPierna(params, texto) {
   const { pedido, status, message } = parsePedidoPierna(params);
@@ -118,17 +131,21 @@ export function parseCorreccionPierna(params, texto) {
   if (!ANOTACION_RE.test(c.anotacion ?? '')) {
     return { status: 400, message: 'anotacion inválida' };
   }
-  if (!['derecha', 'izquierda'].includes(c.pierna) || !['izq', 'der'].includes(c.mitad)) {
-    return { status: 400, message: 'pierna inválida' };
-  }
-  if (!MEDIDAS.includes(c.medida)) {
+  if (!Object.hasOwn(PUNTOS_POR_MEDIDA, c.medida)) {
     return { status: 400, message: 'medida inválida' };
+  }
+  const ambas = DESNIVELES.includes(c.medida);
+  const piernaOk = ambas
+    ? c.pierna === 'ambas' && c.mitad === 'ambas'
+    : ['derecha', 'izquierda'].includes(c.pierna) && ['izq', 'der'].includes(c.mitad);
+  if (!piernaOk) {
+    return { status: 400, message: 'pierna inválida' };
   }
   if (!MODELO_RE.test(c.modelo ?? '')) {
     return { status: 400, message: 'modelo inválido' };
   }
-  const puntosIa = tresPuntos(c.puntos_ia, pedido);
-  const puntos = tresPuntos(c.puntos, pedido);
+  const puntosIa = puntosDe(c.puntos_ia, PUNTOS_POR_MEDIDA[c.medida], pedido);
+  const puntos = puntosDe(c.puntos, PUNTOS_POR_MEDIDA[c.medida], pedido);
   if (!puntosIa || !puntos) {
     return { status: 400, message: 'puntos inválidos' };
   }

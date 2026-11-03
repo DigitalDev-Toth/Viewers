@@ -218,9 +218,30 @@ test('una corrección bien formada se rearma con el centro y los UID de la query
   assert.equal(r.correccion.extra, undefined);
 });
 
+test('los largos y los desniveles llevan dos puntos; los desniveles son de las dos piernas', () => {
+  const dos = { puntos_ia: [[100, 400], [120, 4000]], puntos: [[101, 401], [120, 4000]] };
+  const largo = parseCorreccionPierna(q(valido), JSON.stringify({ ...correccion, ...dos, medida: 'femur' }));
+  assert.equal(largo.correccion.medida, 'femur');
+  assert.equal(largo.correccion.puntos.length, 2);
+  const desnivel = { ...correccion, ...dos, medida: 'cabezas', pierna: 'ambas', mitad: 'ambas' };
+  assert.equal(parseCorreccionPierna(q(valido), JSON.stringify(desnivel)).correccion.pierna, 'ambas');
+  const anatomico = parseCorreccionPierna(q(valido), JSON.stringify({ ...correccion, medida: 'anatomico' }));
+  assert.equal(anatomico.correccion.puntos.length, 3);
+
+  for (const malo of [
+    { ...correccion, ...dos, medida: 'cabezas' }, // un desnivel no es de una pierna
+    { ...correccion, ...dos, medida: 'tibia', pierna: 'ambas', mitad: 'ambas' },
+    { ...correccion, medida: 'femur' }, // tres puntos en un largo
+    { ...correccion, ...dos, medida: 'eje' }, // dos en un ángulo
+  ]) {
+    assert.equal(parseCorreccionPierna(q(valido), JSON.stringify(malo)).status, 400);
+  }
+});
+
 test('rechaza correcciones sin la forma conocida', () => {
   for (const malo of [
     { ...correccion, pierna: 'ambas' },
+    { ...correccion, medida: 'toString' },
     { ...correccion, mitad: 'centro' },
     { ...correccion, medida: 'hka' },
     { ...correccion, anotacion: '<script>' },

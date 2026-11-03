@@ -5,7 +5,12 @@
  */
 
 import { getEnabledElementByViewportId, metaData, utilities as csUtils } from '@cornerstonejs/core';
-import { AngleTool, CobbAngleTool, annotation as csAnnotation } from '@cornerstonejs/tools';
+import {
+  AngleTool,
+  CobbAngleTool,
+  LengthTool,
+  annotation as csAnnotation,
+} from '@cornerstonejs/tools';
 import { wadouri } from '@cornerstonejs/dicom-image-loader';
 
 import { seguirAngulo } from './correcciones';
@@ -36,8 +41,9 @@ export function orientacion(imageId: string): string | undefined {
   }
 }
 
-// Las caderas son Cobb; la pierna, y las caderas medidas antes de noviembre de 2026, Ángulo.
-const HERRAMIENTAS_IA = [AngleTool.toolName, CobbAngleTool.toolName];
+// Las caderas son Cobb; la pierna, y las caderas medidas antes de noviembre de 2026, Ángulo; los largos y
+// desniveles de la pierna, Longitud.
+const HERRAMIENTAS_IA = [AngleTool.toolName, CobbAngleTool.toolName, LengthTool.toolName];
 
 /** Las mediciones anteriores de la IA sobre esta imagen: volver a apretar el botón las reemplaza. */
 export function borrarAnteriores(imageId: string, prefijos: string[] = [PREFIJO]) {
@@ -57,10 +63,11 @@ export function borrarAnteriores(imageId: string, prefijos: string[] = [PREFIJO]
  * Lo mismo que hace AngleTool.hydrate, pero con la etiqueta puesta antes de
  * agregarla: OHIF crea la medición al oír ANNOTATION_ADDED y la toma de ahí.
  * `extra` va a `data` (la pierna guarda ahí qué mide, para su texto).
- * `herramienta`: Ángulo con tres puntos (la pierna) o Cobb con cuatro (las
- * caderas). `texto`: dónde va el recuadro del valor, en el mundo, si no se
- * deja donde lo pone la herramienta; queda ahí aunque se muevan los puntos,
- * como si el radiólogo lo hubiera arrastrado.
+ * `herramienta`: Ángulo con tres puntos (la pierna), Cobb con cuatro (las
+ * caderas) o Longitud con dos (los largos y desniveles de la pierna).
+ * `texto`: dónde va el recuadro del valor, en el mundo, si no se deja donde lo
+ * pone la herramienta; queda ahí aunque se muevan los puntos, como si el
+ * radiólogo lo hubiera arrastrado.
  */
 export function agregarAngulo(
   viewportId: string,
@@ -71,7 +78,10 @@ export function agregarAngulo(
   {
     herramienta = AngleTool,
     texto,
-  }: { herramienta?: typeof AngleTool | typeof CobbAngleTool; texto?: number[] } = {}
+  }: {
+    herramienta?: typeof AngleTool | typeof CobbAngleTool | typeof LengthTool;
+    texto?: number[];
+  } = {}
 ): string {
   const enabledElement = getEnabledElementByViewportId(viewportId);
   const { FrameOfReferenceUID, referencedImageId, viewPlaneNormal, viewport } = (

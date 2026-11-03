@@ -100,13 +100,15 @@ servidor del visor ──POST JSON a la misma ruta /ia/caderas──▶ ia-cader
 navegador ──/api/ia/pierna?<query de caderas>&mm=<PixelSpacing>──▶ servidor del visor (toth/ia-pierna.mjs)
 servidor del visor ──/wado (JPEG, ≤2.048 columnas; 1.536 si pasa de 3 MB)──▶ relay ──▶ dicom-index
 servidor del visor ──POST JPEG──▶ ia-pierna (Supermicro, iaTunning/scripts/servicio_pierna.py)
-                   ◀── por pierna: eje, mLDFA y MPTA como tres puntos cada uno, o el motivo para no medirla
+                   ◀── por pierna: 4 ángulos (3 puntos) y 2 largos (2 puntos), o el motivo para no medirla;
+                       con las dos piernas, 2 desniveles (un punto por pierna)
 ```
 
 - `medirIA` elige: si la imagen es alta (`esTelerradiografia`), `medirPierna`;
   si no, `medirIndiceAcetabular`. Los dos comandos siguen existiendo sueltos.
-- Por pierna deja tres herramientas **Ángulo**, rotuladas con la pierna del
-  paciente (`PatientOrientation`, como las caderas):
+- Por pierna deja cuatro herramientas **Ángulo** y dos **Longitud**,
+  rotuladas con la pierna del paciente (`PatientOrientation`, como las
+  caderas):
   - **eje** = [cadera, rodilla, tobillo]. En la imagen se lee como lo informa
     el radiólogo: «Eje 3,0° varo» (180° menos el ángulo en la rodilla, varo si
     la rodilla queda por fuera de la línea cadera-tobillo). El panel de
@@ -114,11 +116,33 @@ servidor del visor ──POST JPEG──▶ ia-pierna (Supermicro, iaTunning/scr
   - **mLDFA** y **MPTA**, con el vértice en el cruce de la línea articular del
     fémur (cóndilos) o de la tibia (platillo) con su eje mecánico: Ángulo
     muestra el valor exacto. Normal: 85–90°.
+  - **eje anatómico** = [diáfisis del fémur a la altura de la cabeza, cruce
+    con el eje de la tibia, tobillo], escrito como el mecánico («Eje
+    anatómico 5,2° valgo»). La diáfisis la busca el servicio en la imagen
+    (bordes de la cortical entre el 30 y el 80 % del fémur); la tibia va por
+    su eje mecánico (rodilla → tobillo), como el FTA de BMPLE.
+  - **fémur** (borde superior de la cabeza → medio de los cóndilos) y
+    **tibia** (medio del platillo → centro del tobillo), con Longitud: «Fémur
+    424 mm». El borde superior de la cabeza se estima a 5,5 % del largo
+    cabeza → rodilla sobre su centro.
   - El texto lo pone `pierna.ts` (`textoPierna`) envolviendo el
-    `getTextLines` de la herramienta Ángulo en cada grupo; los ángulos hechos
-    a mano no cambian. Si el radiólogo mueve un punto, el texto se recalcula.
-  - Cada ángulo se corrige por separado: mover la rodilla del eje no mueve
+    `getTextLines` de Ángulo y de Longitud en cada grupo; lo hecho a mano no
+    cambia. Si el radiólogo mueve un punto, el texto se recalcula. Los mm son
+    los que calibró Longitud (`cachedStats`), los mismos que mide a mano; sin
+    el sufijo de calibración («mm Unknown»).
+  - Cada medida se corrige por separado: mover la rodilla del eje no mueve
     el vértice del mLDFA.
+- Con las dos piernas medidas, dos **desniveles**: una Longitud entre los
+  bordes superiores de las cabezas femorales y otra entre los medios de los
+  platillos tibiales. El texto es la diferencia de altura en la imagen y la
+  pierna más alta, como lo informa csf: «Desnivel de cabezas femorales:
+  derecha 4 mm más alta». Con los pies en el suelo, el de las cabezas es la
+  diferencia de largo total y el de las tibias, la de la tibia (más el pie).
+  Como con el eje, el panel de mediciones muestra el valor crudo de la
+  herramienta: el largo de la línea entre las dos piernas, no el desnivel.
+- Los recuadros de las medidas nuevas van donde no se encimen con los del eje
+  y la rodilla (`dondeTexto`): los largos y el anatómico hacia afuera de cada
+  pierna, los desniveles en la pelvis (bajo las cabezas) y bajo las rodillas.
 - El servicio mide cada pierna por separado y no dibuja la que no ve con
   claridad (rodilla o tobillo poco nítidos, prótesis, una sola pierna) o cuya
   geometría no calza; el aviso dice cuál faltó y por qué. Si no ve ninguna,
@@ -128,7 +152,8 @@ servidor del visor ──POST JPEG──▶ ia-pierna (Supermicro, iaTunning/scr
   prueba de BMPLE, mLDFA a 0,36° y MPTA a 0,67° del traumatólogo.
 - Las correcciones van como las de caderas, con `{pierna, mitad, medida}` en
   vez de `{cadera, mitad}`, a `/api/ia/pierna/correccion`; el servicio las anota
-  en `/mnt/data/ia/datasets/pierna-correcciones` del Supermicro.
+  en `/mnt/data/ia/datasets/pierna-correcciones` del Supermicro. Los largos y
+  desniveles mandan 2 puntos; un desnivel va con pierna y mitad `ambas`.
 
 ## Probar en local
 

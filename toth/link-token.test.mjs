@@ -213,6 +213,14 @@ test('parseCookies lee el valor entre otras cookies', () => {
   assert.equal(cookies.mirror_auth, 'abc.def.ghi');
 });
 
+test('parseCookies salta una cookie mal codificada sin lanzar', () => {
+  const cookies = parseCookies('ajena=%; mirror_auth=abc.def.ghi; otra=%E0%A4%A');
+
+  assert.equal(cookies.mirror_auth, 'abc.def.ghi');
+  assert.equal(cookies.ajena, undefined);
+  assert.equal(cookies.otra, undefined);
+});
+
 test('linkSecrets prefiere la lista y descarta vacíos', () => {
   assert.deepEqual(linkSecrets({ MIRROR_LINK_SECRETS: 'a, b ,,c' }), ['a', 'b', 'c']);
   assert.deepEqual(linkSecrets({ MIRROR_LINK_SECRET: 'solo' }), ['solo']);

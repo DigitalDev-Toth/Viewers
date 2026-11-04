@@ -216,9 +216,11 @@ const server = http.createServer((req, res) => {
   }
 
   // Igual que server.mjs: las URLs de imagen del manifiesto tienen que volver
-  // a este proxy, que es el que tiene el token, no ir directo al relay.
+  // a este proxy, que es el que tiene el token, no ir directo al relay. Y
+  // siempre, aunque venga en la query.
+  params.delete('wado_base');
   const isManifest = pathname.endsWith('/ohif') || params.get('format') === 'ohif';
-  if (isManifest && !params.has('wado_base')) {
+  if (isManifest) {
     params.set('wado_base', `http://localhost:${PORT}`);
   }
   const query = params.toString();
@@ -256,7 +258,10 @@ const server = http.createServer((req, res) => {
   req.pipe(upstream);
 });
 
-server.listen(PORT, () => {
+// Sólo en loopback. Este proxy no autentica a nadie y suele correr con los
+// secretos de producción: escuchando en todas las interfaces, cualquiera en la
+// misma red listaría y bajaría estudios de todos los centros.
+server.listen(PORT, '127.0.0.1', () => {
   console.log(`proxy   http://localhost:${PORT}  →  ${RELAY.origin}`);
   console.log(`origen  ${ORIGIN}`);
 });

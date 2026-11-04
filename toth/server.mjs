@@ -192,8 +192,13 @@ function proxyToRelay(req, res, pathname, search) {
   // El manifiesto lleva dentro las URLs de imagen que pedirá el navegador, y
   // tienen que apuntar a este mismo origen, no al relay. Se inyecta acá para
   // que el cliente no tenga que saberlo (ni pueda equivocarse).
+  //
+  // Siempre, aunque venga en la query: dicom-index usa el `wado_base` tal
+  // cual, y uno ajeno en un enlace armado haría que el visor mostrara la
+  // metadata real del estudio con los píxeles de otro host.
+  params.delete('wado_base');
   const isManifest = pathname.endsWith('/ohif') || params.get('format') === 'ohif';
-  if (isManifest && !params.has('wado_base')) {
+  if (isManifest) {
     const origin = PUBLIC_ORIGIN || `https://${req.headers.host ?? ''}`;
     params.set('wado_base', `${origin}/api`);
   }
@@ -290,9 +295,17 @@ async function corregirIaPierna(req, res, params) {
 }
 
 function serveStatic(res, pathname) {
+  // Un `%` mal formado (GET /%) hace lanzar a decodeURIComponent.
+  let decoded;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    res.writeHead(400).end();
+    return;
+  }
   // path.normalize + prefijo obligatorio: sin esto un `..` en la URL sacaría
   // archivos de fuera de dist.
-  const rel = path.normalize(decodeURIComponent(pathname)).replace(/^(\.\.[/\\])+/, '');
+  const rel = path.normalize(decoded).replace(/^(\.\.[/\\])+/, '');
   let file = path.join(DIST, rel);
   if (!path.resolve(file).startsWith(path.resolve(DIST))) {
     res.writeHead(403).end();
@@ -317,51 +330,62 @@ function serveStatic(res, pathname) {
   });
 }
 
+function handle(req, res) {
+  const { pathname, search } = new URL(req.url, 'http://localhost');
+
+  if (pathname === '/healthz') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end('{"status":"ok"}');
+    return;
+  }
+
+  if (pathname === '/open') {
+    openStudy(req, res, new URLSearchParams(search));
+    return;
+  }
+
+  if (pathname.startsWith('/api/')) {
+    const apiPath = pathname.slice(4);
+    const rechazo = authorizeApiRequest(apiPath, new URLSearchParams(search), claimsFor(req));
+    if (rechazo) {
+      denied(res, rechazo.status, rechazo.message);
+      return;
+    }
+
+    if (apiPath === '/ia/caderas') {
+      return medirIa(res, new URLSearchParams(search));
+    }
+    if (apiPath === '/ia/caderas/correccion') {
+      return corregirIa(req, res, new URLSearchParams(search));
+    }
+    if (apiPath === '/ia/pierna') {
+      return medirIaPierna(res, new URLSearchParams(search));
+    }
+    if (apiPath === '/ia/pierna/correccion') {
+      return corregirIaPierna(req, res, new URLSearchParams(search));
+    }
+
+    proxyToRelay(req, res, apiPath, search);
+    return;
+  }
+
+  serveStatic(res, pathname);
+}
+
 http
-  .createServer((req, res) => {
-    const { pathname, search } = new URL(req.url, 'http://localhost');
-
-    if (pathname === '/healthz') {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end('{"status":"ok"}');
-      return;
+  .createServer(async (req, res) => {
+    // Red de seguridad: una excepción que se escape de un handler bota el
+    // proceso, y con él todas las descargas en curso de la instancia. Que la
+    // pague sólo la petición que la provocó.
+    try {
+      await handle(req, res);
+    } catch (err) {
+      console.error(`${req.method} ${req.url} → ${err?.stack ?? err}`);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
+      }
+      res.end(JSON.stringify({ error: 'error interno' }));
     }
-
-    if (pathname === '/open') {
-      openStudy(req, res, new URLSearchParams(search));
-      return;
-    }
-
-    if (pathname.startsWith('/api/')) {
-      const apiPath = pathname.slice(4);
-      const rechazo = authorizeApiRequest(apiPath, new URLSearchParams(search), claimsFor(req));
-      if (rechazo) {
-        denied(res, rechazo.status, rechazo.message);
-        return;
-      }
-
-      if (apiPath === '/ia/caderas') {
-        medirIa(res, new URLSearchParams(search));
-        return;
-      }
-      if (apiPath === '/ia/caderas/correccion') {
-        corregirIa(req, res, new URLSearchParams(search));
-        return;
-      }
-      if (apiPath === '/ia/pierna') {
-        medirIaPierna(res, new URLSearchParams(search));
-        return;
-      }
-      if (apiPath === '/ia/pierna/correccion') {
-        corregirIaPierna(req, res, new URLSearchParams(search));
-        return;
-      }
-
-      proxyToRelay(req, res, apiPath, search);
-      return;
-    }
-
-    serveStatic(res, pathname);
   })
   .listen(PORT, () => {
     console.log(`ohif-viewer :${PORT}  →  ${RELAY.origin}  (dist: ${DIST})`);

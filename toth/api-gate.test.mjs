@@ -152,6 +152,46 @@ test('la sesión sigue acotada a las rutas expuestas', () => {
   assert.equal(authorizeApiRequest('/studies', q({ client: 'nim' }), sesion).status, 404);
 });
 
+// ── parámetros repetidos ───────────────────────────────────────────────────
+
+test('un client repetido no cuela otro centro', () => {
+  // Acá se lee el primero y el relay lee el último: sin este rechazo, el
+  // relay pediría al centro ajeno lo que la compuerta autorizó para el propio.
+  const r = authorizeApiRequest(
+    '/wado',
+    new URLSearchParams(`client=nim&studyUID=${ESTUDIO}&client=cdc`),
+    sesion
+  );
+
+  assert.equal(r.status, 400);
+});
+
+test('un studyUID repetido no cuela otro estudio', () => {
+  const r = authorizeApiRequest(
+    '/wado',
+    new URLSearchParams(`client=nim&studyUID=${ESTUDIO}&studyUID=${OTRO_ESTUDIO}`),
+    view
+  );
+
+  assert.equal(r.status, 400);
+});
+
+test('la clave repetida se detecta aunque venga codificada', () => {
+  const r = authorizeApiRequest(
+    `/study/${ESTUDIO}/ohif`,
+    new URLSearchParams('client=nim&cl%69ent=cdc'),
+    view
+  );
+
+  assert.equal(r.status, 400);
+});
+
+test('un estudio mal codificado en la ruta se rechaza sin lanzar', () => {
+  const r = authorizeApiRequest('/study/%E0%A4%A/ohif', q({ client: 'nim' }), view);
+
+  assert.equal(r.status, 403);
+});
+
 test('un scope desconocido en los claims se trata como enlace por estudio', () => {
   // Defensa en profundidad: verifyLinkToken ya rechaza estos, pero si alguna
   // vez dejara pasar uno, la compuerta debe cerrar, no abrir.

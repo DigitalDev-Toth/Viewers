@@ -42,7 +42,26 @@ export function matchApiRoute(apiPath) {
 
 /** El estudio que la petición está pidiendo, según la ruta. */
 export function requestedStudy(route, match, params) {
-  return route.studyFrom === 'path' ? decodeURIComponent(match[1]) : params.get('studyUID');
+  if (route.studyFrom !== 'path') {
+    return params.get('studyUID');
+  }
+  // Un `%` mal formado hace lanzar a decodeURIComponent, y una excepción acá
+  // bota el proceso. Un estudio que no se puede leer no es el del token.
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Esta compuerta lee el primer valor de cada parámetro y el relay (Starlette)
+ * el último: con `client=propio&client=ajeno` acá se vería el propio y allá se
+ * pediría el ajeno. Una query con claves repetidas no tiene una sola lectura.
+ */
+function hasRepeatedKeys(params) {
+  const keys = [...params.keys()];
+  return new Set(keys).size !== keys.length;
 }
 
 /**
@@ -59,6 +78,9 @@ export function authorizeApiRequest(apiPath, params, claims) {
   }
   if (!claims) {
     return { status: 401, message: 'sin autorización válida' };
+  }
+  if (hasRepeatedKeys(params)) {
+    return { status: 400, message: 'parámetros repetidos' };
   }
 
   // El centro se compara siempre: es lo que impide que un token de un cliente

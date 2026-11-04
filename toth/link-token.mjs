@@ -143,7 +143,15 @@ export function parseCookies(header) {
   for (const pair of header.split(';')) {
     const i = pair.indexOf('=');
     if (i < 0) continue;
-    out[pair.slice(0, i).trim()] = decodeURIComponent(pair.slice(i + 1).trim());
+    // Un `%` suelto hace lanzar a decodeURIComponent, y una excepción acá bota
+    // el proceso. Llegan también las cookies que cualquier sitio de cui.date
+    // ponga con Domain=cui.date, así que no todas son nuestras: la que no se
+    // puede leer se salta.
+    try {
+      out[pair.slice(0, i).trim()] = decodeURIComponent(pair.slice(i + 1).trim());
+    } catch {
+      continue;
+    }
   }
   return out;
 }
